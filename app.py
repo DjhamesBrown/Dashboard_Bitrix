@@ -100,7 +100,7 @@ if aba == "🚀 Operacional":
             df_view = df_pendentes.copy()
             df_view["ID_Int"] = pd.to_numeric(df_view["ID"])
             df_view = df_view.sort_values(by="ID_Int", ascending=True)
-            tit = "Total Pendente (ID Crescente)"
+            tit = "Total Pendente "
             
         elif f == 'SLA':
             df_view = df_abertos[df_abertos["Estourado"]].copy()
@@ -145,4 +145,5 @@ if aba == "🚀 Operacional":
 
 # 4. Lógica do Módulo GESTÃO E RELATÓRIOS
 else: 
+
     relatorios.renderizar_aba_gestao()
