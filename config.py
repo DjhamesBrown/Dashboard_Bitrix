@@ -1,8 +1,14 @@
 # config.py
 import streamlit as st
 
-# 1. SEGURANÇA (ITIL 4): A URL agora é puxada do cofre invisível (Secrets) do Streamlit Cloud
+# 1. SEGURANÇA E CONEXÃO
 WEBHOOK_URL = st.secrets["BITRIX_WEBHOOK_URL"]
+
+# Matriz de Autenticação para a Diretoria
+CREDENCIAIS = {
+    "user": st.secrets.get("DIR_USER", "admin"),
+    "password": st.secrets.get("DIR_PASS", "1234")
+}
 
 # 2. MAPEAMENTO DA EQUIPE
 EQUIPE = {
@@ -30,7 +36,7 @@ FASES_ATIVAS = [
     "C8:UC_3RMJ6E", "C8:UC_LQG67P", "C8:UC_N5RGUL"
 ]
 
-# 4. MAPEAMENTO DE CAMPOS DA API DO BITRIX24
+# 4. MAPEAMENTO DE CAMPOS DA API DO BITRIX24 (Com Vetores Confirmados)
 CAMPOS_BITRIX = {
     "ID": "ID", 
     "TITLE": "Título Completo", 
@@ -38,5 +44,9 @@ CAMPOS_BITRIX = {
     "STAGE_ID": "Fase_Cod", 
     "DATE_CREATE": "Data Abertura",
     "DATE_MODIFY": "Data Modificacao", 
-    "UF_CRM_1616006980001": "Último Follow-up"
+    "UF_CRM_1616006980001": "Último Follow-up",
+    
+    # Vetores de Causa-Raiz (Análise de Pareto)
+    "UF_CRM_1685489465": "Motivo Abertura",
+    "UF_CRM_1636030396": "Motivo Fechamento"
 }
