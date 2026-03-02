@@ -5,6 +5,18 @@ from datetime import datetime, timedelta
 import streamlit as st
 import config
 
+@st.cache_data(ttl=3600) # Cache de 1 hora para o dicionário estatístico
+def obter_dicionario_campo(nome_campo_uf):
+    """Extrai a matriz de tradução (ID -> Texto) dos campos de Lista do Bitrix24."""
+    try:
+        resp = requests.post(f"{config.WEBHOOK_URL}/crm.deal.userfield.list", json={"filter": {"FIELD_NAME": nome_campo_uf}}).json()
+        if "result" in resp and len(resp["result"]) > 0:
+            itens = resp["result"][0].get("LIST", [])
+            return {str(item["ID"]): item["VALUE"] for item in itens}
+    except Exception as e:
+        print(f"Erro na extração do dicionário para {nome_campo_uf}: {e}")
+    return {}
+
 @st.cache_data(ttl=300) # Cache de 5 minutos (Gestão não precisa de 60s)
 def buscar_dados_historico(data_inicio, data_fim):
     """Motor dedicado para relatórios, busca dados sob demanda com paginação."""
@@ -45,10 +57,19 @@ def buscar_dados_historico(data_inicio, data_fim):
                     
         df = pd.DataFrame(todos_dados)
         
-        if df.empty: return pd.DataFrame()
+        if df.empty: 
+            return pd.DataFrame()
         
         # Limpeza de duplicatas geradas pela dupla busca
         df.drop_duplicates(subset="ID", inplace=True)
+        
+        # IDENTIFICAÇÃO E TRADUÇÃO DAS VARIÁVEIS CATEGÓRICAS (Motivos)
+        for campo_uf, nome_legivel in config.CAMPOS_BITRIX.items():
+            if "Motivo" in nome_legivel and campo_uf in df.columns:
+                dicionario_traducao = obter_dicionario_campo(campo_uf)
+                df[campo_uf] = df[campo_uf].astype(str).map(dicionario_traducao).fillna("Não Classificado")
+                
+        # Renomeia as colunas usando a matriz do config.py
         df.rename(columns=config.CAMPOS_BITRIX, inplace=True)
         
         # --- PROCESSAMENTO (Igual ao Operacional para manter padrão) ---
