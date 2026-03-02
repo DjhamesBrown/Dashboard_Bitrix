@@ -8,6 +8,7 @@ from datetime import datetime
 import data_engine
 import styles
 import relatorios
+import config
 
 # 1. Configurações Iniciais da Página
 st.set_page_config(
@@ -16,19 +17,70 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Aplica o CSS para organizar o layout e garantir visibilidade do menu
-styles.aplicar_css()
+# ==========================================
+# GESTÃO DE ESTADO (Sessão, Tema e Segurança)
+# ==========================================
+if 'tema' not in st.session_state: 
+    st.session_state.tema = 'dark'
+if 'autenticado' not in st.session_state: 
+    st.session_state.autenticado = False
+if 'role' not in st.session_state: 
+    st.session_state.role = None
 
-# 2. Navegação Lateral (Menu de Gestão)
+# Aplica o CSS dependente do tema atual
+styles.aplicar_css(st.session_state.tema)
+
+def realizar_login():
+    usr = st.session_state.usuario_input
+    pwd = st.session_state.senha_input
+    
+    # Valida credenciais usando o config.py (RBAC)
+    for nivel, cred in config.CREDENCIAIS.items():
+        if usr == cred["user"] and pwd == cred["pass"]:
+            st.session_state.autenticado = True
+            st.session_state.role = cred["role"]
+            return
+            
+    st.error("Acesso Negado. Credenciais inválidas na base de dados.")
+
+# Barreira Estocástica: Se não houver autenticação, bloqueia a renderização
+if not st.session_state.autenticado:
+    st.markdown("<br><br><h2 style='text-align: center;'>🔐 Autenticação Corporativa</h2>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1.5, 1, 1.5])
+    with c2:
+        st.text_input("Usuário", key="usuario_input")
+        st.text_input("Senha", type="password", key="senha_input")
+        st.button("Acessar Sistema", on_click=realizar_login, use_container_width=True)
+    st.stop() # Interrompe a compilação aqui
+
+
+# 2. Navegação Lateral (Menu Baseado em Roles)
 with st.sidebar:
     st.title("📟 Menu")
-    aba = st.radio("Módulo:", ["🚀 Operacional", "📊 Gestão"])
+    
+    # Controle de Acesso Baseado em Papéis (RBAC)
+    opcoes_menu = ["🚀 Operacional"]
+    if st.session_state.role == "gestor":
+        opcoes_menu.append("📊 Gestão")
+        
+    aba = st.radio("Módulo:", opcoes_menu)
+    
     st.markdown("---")
+    
+    # Toggle de Interface (Claro/Escuro)
+    if st.button("🌓 Alternar Tema (UI)"):
+        st.session_state.tema = 'light' if st.session_state.tema == 'dark' else 'dark'
+        st.rerun()
+        
+    st.markdown("---")
+    
     if st.button("🔄 Sincronizar Agora"): 
         st.cache_data.clear()
         st.rerun()
 
+# ==========================================
 # 3. Lógica do Módulo OPERACIONAL
+# ==========================================
 if aba == "🚀 Operacional":
     # Estado inicial de filtragem: Foca no Total Pendente por padrão
     if 'filtro_atual' not in st.session_state: 
@@ -143,7 +195,9 @@ if aba == "🚀 Operacional":
     time.sleep(60)
     st.rerun()
 
+# ==========================================
 # 4. Lógica do Módulo GESTÃO E RELATÓRIOS
-else: 
+# ==========================================
+elif aba == "📊 Gestão": 
 
     relatorios.renderizar_aba_gestao()
