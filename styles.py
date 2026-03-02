@@ -45,9 +45,16 @@ def card_informativo(titulo, valor, subtitulo="", help_text=""):
     """, unsafe_allow_html=True)
 
 def style_rows(row):
-    num_cols = 10 # Aumentado para prever novas colunas gerenciais
+    # Alocação dinâmica de dimensionalidade (Calcula o vetor exato de colunas 'n')
+    num_cols = len(row) 
+    
     sla = str(row.get("SLA Restante", ""))
     fase = str(row.get("Fase Nome", ""))
-    if "🚨" in sla: return ['background-color: #521c1c; color: white; font-weight: bold'] * num_cols
-    if "Solucionado" in fase: return ['background-color: #0d3311; color: white'] * num_cols
+    
+    if "🚨" in sla: 
+        return ['background-color: #521c1c; color: white; font-weight: bold'] * num_cols
+    if "Solucionado" in fase: 
+        return ['background-color: #0d3311; color: white'] * num_cols
+        
     return [''] * num_cols
+
