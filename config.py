@@ -4,10 +4,10 @@ import streamlit as st
 # 1. SEGURANÇA E CONEXÃO
 WEBHOOK_URL = st.secrets["BITRIX_WEBHOOK_URL"]
 
-# Matriz de Autenticação para a Diretoria
+# Matriz de Controle de Acesso (RBAC) - Defina no secrets.toml
 CREDENCIAIS = {
-    "user": st.secrets.get("DIR_USER", "admin"),
-    "password": st.secrets.get("DIR_PASS", "1234")
+    "diretoria": {"user": st.secrets.get("DIR_USER", "diretoria"), "pass": st.secrets.get("DIR_PASS", "1234"), "role": "gestor"},
+    "suporte": {"user": st.secrets.get("SUP_USER", "suporte"), "pass": st.secrets.get("SUP_PASS", "1234"), "role": "operador"}
 }
 
 # 2. MAPEAMENTO DA EQUIPE
@@ -45,8 +45,6 @@ CAMPOS_BITRIX = {
     "DATE_CREATE": "Data Abertura",
     "DATE_MODIFY": "Data Modificacao", 
     "UF_CRM_1616006980001": "Último Follow-up",
-    
-    # Vetores de Causa-Raiz (Análise de Pareto)
     "UF_CRM_1685489465": "Motivo Abertura",
     "UF_CRM_1636030396": "Motivo Fechamento"
 }
