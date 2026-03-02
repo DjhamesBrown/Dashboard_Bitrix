@@ -6,7 +6,7 @@ from datetime import date, datetime
 import data_engine_rel
 
 def renderizar_aba_gestao():
-    st.header("📊 Inteligência de Dados e Gestão (ITIL 4)")
+    st.header("📊 Inteligência de Dados e Gestão (ITIL 4 - CSI)")
     
     # --- 1. BARRA LATERAL ESTÁTICA ---
     st.sidebar.subheader("🎯 Filtros de Valor")
@@ -41,6 +41,7 @@ def renderizar_aba_gestao():
 
     if not df_base.empty:
         agora = pd.Timestamp(datetime.now())
+        # Cálculo exato do Tempo Investido (Horas)
         df_base["Tempo_Gasto_Real"] = df_base.apply(
             lambda row: (row["Data Modificacao"] if row["Status"] == "Solucionado" else agora) - row["Data Abertura"], 
             axis=1
@@ -88,17 +89,69 @@ def renderizar_aba_gestao():
 
     st.markdown("---")
 
-    # --- 4. ANÁLISE VISUAL AVANÇADA ---
     # Aplica o filtro de data (referência) para todos os gráficos abaixo
     mask_charts = (df_base[col_data_graficos].dt.date >= d_ini) & (df_base[col_data_graficos].dt.date <= d_fim)
     df_charts = df_base[mask_charts].copy()
 
-    # LINHA 1: VISÃO GERAL (Macro)
-    st.subheader("🌐 Visão Macroeconômica do Setor")
+    # --- ANÁLISE DE GARGALOS E OTIMIZAÇÃO (CUSTO/TEMPO) ---
+    st.subheader("⏱️ Análise de Esforço Operacional (Tempo Investido)")
+    if not df_charts.empty:
+        tempo_total = df_charts["Tempo_Gasto_Real"].sum()
+        mttr_medio = df_charts["Tempo_Gasto_Real"].mean()
+        
+        t1, t2, t3 = st.columns(3)
+        t1.info(f"**Σ Custo Total de Tempo:** {tempo_total:.1f} Horas investidas.")
+        t2.info(f"**μ MTTR Médio (Resolução):** {mttr_medio:.1f} Horas por chamado.")
+        t3.success("💡 **Foco de Otimização:** Reduzir o MTTR em 10% economizará horas faturáveis da equipe.")
+        
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            df_tempo_cli = df_charts.groupby("Cliente")["Tempo_Gasto_Real"].sum().reset_index().nlargest(10, "Tempo_Gasto_Real")
+            fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Tempo_Gasto_Real', title="Esforço Horas vs. Cliente (Top 10 Consumidores)", text_auto='.1f')
+            fig_t1.update_layout(yaxis_title="Σ Horas Gasto")
+            st.plotly_chart(fig_t1, use_container_width=True)
+        with col_t2:
+            df_tempo_ana = df_charts.groupby("Responsável")["Tempo_Gasto_Real"].sum().reset_index()
+            fig_t2 = px.pie(df_tempo_ana, values='Tempo_Gasto_Real', names='Responsável', title="Distribuição de Carga Horária por Analista", hole=0.3)
+            st.plotly_chart(fig_t2, use_container_width=True)
+
+    st.markdown("---")
+
+    # --- ANÁLISE DE CAUSA-RAIZ (Estatística Descritiva / Pareto) ---
+    st.subheader("🔍 Estocástica de Incidentes (Diagrama de Pareto)")
+    l3_g1, l3_g2 = st.columns(2)
+
+    def gerar_dados_pareto(df_p, coluna):
+        df_freq = df_p[coluna].value_counts().reset_index()
+        df_freq.columns = [coluna, 'Frequência Absoluta']
+        return df_freq
+
+    with l3_g1:
+        st.markdown("**Matriz de Motivos de Abertura (Volumetria de Entrada)**")
+        if "Motivo Abertura" in df_charts.columns and not df_charts["Motivo Abertura"].dropna().empty:
+            df_abertura = gerar_dados_pareto(df_charts, "Motivo Abertura").head(10) 
+            fig_abertura = px.bar(df_abertura, y='Motivo Abertura', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Blues')
+            fig_abertura.update_layout(xaxis_title="Σ Volume", yaxis_title="Vetor de Motivo", margin=dict(t=10))
+            st.plotly_chart(fig_abertura, use_container_width=True)
+
+    with l3_g2:
+        st.markdown("**Matriz de Resoluções (Motivos de Encerramento)**")
+        if "Motivo Fechamento" in df_charts.columns and not df_charts["Motivo Fechamento"].dropna().empty:
+            df_solucionados = df_charts[df_charts["Status"] == "Solucionado"]
+            if not df_solucionados.empty:
+                df_fechamento = gerar_dados_pareto(df_solucionados, "Motivo Fechamento").head(10)
+                fig_fechamento = px.bar(df_fechamento, y='Motivo Fechamento', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Greens')
+                fig_fechamento.update_layout(xaxis_title="Σ Volume", yaxis_title="Vetor de Fechamento", margin=dict(t=10))
+                st.plotly_chart(fig_fechamento, use_container_width=True)
+
+    st.markdown("---")
+
+    # --- VISÃO GERAL (Macro) ---
+    st.subheader("🌐 Visão Macroeconômica do Setor e Equipe")
     l1_g1, l1_g2 = st.columns(2)
     
     with l1_g1:
-        # NOVO: Gráfico de Tendência (Volume Dia a Dia)
+        # Gráfico de Tendência (Volume Dia a Dia)
         st.markdown("**Evolução Diária de Demandas**")
         if not df_charts.empty:
             df_trend = df_charts.groupby(df_charts[col_data_graficos].dt.date).size().reset_index(name="Quantidade")
@@ -107,22 +160,6 @@ def renderizar_aba_gestao():
             st.plotly_chart(fig_trend, use_container_width=True)
 
     with l1_g2:
-        # Gráfico Circular de Clientes
-        st.markdown("**Concentração por Cliente (Top 10)**")
-        if not df_charts.empty:
-            df_pie = df_charts.groupby("Cliente").size().reset_index(name="Quantidade").nlargest(10, "Quantidade")
-            fig_pie = px.pie(df_pie, values="Quantidade", names="Cliente", hole=0.4)
-            fig_pie.update_traces(textinfo='percent+value')
-            fig_pie.update_layout(margin=dict(t=10, b=10))
-            st.plotly_chart(fig_pie, use_container_width=True)
-
-    st.markdown("---")
-
-    # LINHA 2: VISÃO DE EQUIPE (Micro)
-    st.subheader("👥 Performance e Carga da Equipe")
-    l2_g1, l2_g2 = st.columns(2)
-
-    with l2_g1:
         # Gráfico de Carga de Trabalho por Fase
         st.markdown("**Carga de Trabalho por Fase**")
         if not df_charts.empty:
@@ -131,32 +168,22 @@ def renderizar_aba_gestao():
             fig_bar.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
             st.plotly_chart(fig_bar, use_container_width=True)
 
-    with l2_g2:
-        # NOVO: Gráfico de Eficiência de SLA por Analista
-        st.markdown("**Qualidade de Entrega (SLA por Analista)**")
-        if not df_charts.empty:
-            df_charts['Status_SLA'] = df_charts['Estourou_Real'].map({True: 'Estourado 🚨', False: 'No Prazo ✅'})
-            df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset_index(name='Total')
-            
-            # Cores intuitivas: Verde para No Prazo, Vermelho para Estourado
-            cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
-            
-            fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', 
-                             barmode='stack', text_auto='.0f', color_discrete_map=cores_sla)
-            fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
-            st.plotly_chart(fig_sla, use_container_width=True)
-
-    # --- 5. RELATÓRIO DETALHADO ---
+    # --- RELATÓRIO DETALHADO ---
     with st.expander("📄 Visualizar Relatório Detalhado (Auditoria)"):
         if not df_charts.empty:
             df_detalhe = df_charts.copy()
             df_detalhe["Data Abertura"] = df_detalhe["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
             
             df_detalhe["Histórico SLA"] = df_detalhe["Estourou_Real"].map({True: "🚨 Estourado", False: "✅ No Prazo"})
+            df_detalhe["Tempo Investido (h)"] = df_detalhe["Tempo_Gasto_Real"].apply(lambda x: round(x, 2))
             
             # Reorganizando as colunas para a tabela ficar mais gerencial
-            cols_view = ["ID", "Responsável", "Cliente", "Fase Nome", "Histórico SLA", "Data Abertura"]
-            st.dataframe(df_detalhe[cols_view], width="stretch", hide_index=True)
+            cols_view = ["ID", "Responsável", "Cliente", "Fase Nome", "Histórico SLA", "Tempo Investido (h)", "Motivo Abertura", "Motivo Fechamento", "Data Abertura"]
+            
+            # Exibe as colunas dinamicamente verificando se existem na estrutura
+            cols_view_present = [col for col in cols_view if col in df_detalhe.columns]
+            
+            st.dataframe(df_detalhe[cols_view_present], width="stretch", hide_index=True)
             
             csv = df_detalhe.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Exportar Relatório Visível para CSV", csv, f"relatorio_auditoria_{d_ini}.csv", "text/csv")
