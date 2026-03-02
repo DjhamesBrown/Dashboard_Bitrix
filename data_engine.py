@@ -45,7 +45,8 @@ def buscar_dados():
         todos_dados = lista_ativos + lista_criados + lista_hoje
         df = pd.DataFrame(todos_dados)
         
-        if df.empty: return pd.DataFrame()
+        if df.empty: 
+            return pd.DataFrame()
         
         df.drop_duplicates(subset="ID", inplace=True)
         df.rename(columns=config.CAMPOS_BITRIX, inplace=True)
