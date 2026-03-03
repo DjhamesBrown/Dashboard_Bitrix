@@ -23,7 +23,7 @@ def renderizar_aba_gestao():
                     df_filtrado = df_base[df_base[coluna_filtro].isin(valores)]
                     st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtrado)} chamado(s) localizado(s) para '{', '.join(map(str, valores))}'.")
                     
-                    cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Motivo Fechamento", "Esforco_Formatado"]
+                    cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Motivo Fechamento", "Esforco_Formatado", "Data Formatada"]
                     df_show = df_filtrado[[c for c in cols if c in df_filtrado.columns]].copy()
                     
                     if "Esforco_Formatado" in df_show.columns:
@@ -102,8 +102,10 @@ def renderizar_aba_gestao():
     if not df_charts.empty:
         df_charts['Status_SLA'] = df_charts['Estourado'].map({True: 'Estourado 🚨', False: 'No Prazo ✅'})
         df_charts["Data Formatada"] = df_charts["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
+        # ⚠️ CHAVE DE LIGAÇÃO: Cria a coluna de data pura como texto para permitir o clique exato
+        df_charts['Data_Ref_Str'] = df_charts[col_data_graficos].dt.strftime('%Y-%m-%d')
 
-    st.info("💡 **Atenção (Drill-Down):** Interaja com os gráficos e tabelas abaixo clicando diretamente nas **barras ou nas linhas** para detalhar as informações.")
+    st.info("💡 **Atenção (Drill-Down):** Interaja com os gráficos e tabelas abaixo clicando diretamente nos **pontos, barras ou linhas** para detalhar as informações.")
 
     # --- 2. ANÁLISE DE ESFORÇO (TOUCH TIME) ---
     st.subheader("⏱️ Análise de Esforço Operacional (Horas Trabalhadas)")
@@ -162,7 +164,7 @@ def renderizar_aba_gestao():
                         st.success(f"🔎 **Auditoria:** Chamados do cliente **{cliente_selecionado}**.")
                         df_filtro_cli = df_charts[df_charts["Cliente"] == cliente_selecionado].copy()
                         
-                        cols_cli = ["ID", "Responsável", "Fase Nome", "Esforco_Formatado"]
+                        cols_cli = ["ID", "Responsável", "Fase Nome", "Esforco_Formatado", "Data Formatada"]
                         df_chamados_cli = df_filtro_cli[[c for c in cols_cli if c in df_filtro_cli.columns]].copy()
                         if "Esforco_Formatado" in df_chamados_cli.columns:
                             df_chamados_cli.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
@@ -194,7 +196,6 @@ def renderizar_aba_gestao():
     with l3_g1:
         st.markdown("**Matriz de Motivos de Abertura (Entrada)**")
         if "Motivo Abertura" in df_charts.columns and not df_charts["Motivo Abertura"].dropna().empty:
-            # ⚠️ NOVO: Alternância Motivos de Abertura
             opcao_visao_abertura = st.radio("Visão de Entrada:", ["Gráfico (Top 10)", "Tabela Auditável (Todos)"], horizontal=True, key="rad_abert")
             df_abertura_full = gerar_dados_pareto(df_charts, "Motivo Abertura")
             
@@ -222,7 +223,7 @@ def renderizar_aba_gestao():
                     st.success(f"🔎 **Auditoria:** Chamados abertos por **{motivo_abert_sel}**.")
                     df_filtro_abert = df_charts[df_charts["Motivo Abertura"] == motivo_abert_sel].copy()
                     
-                    cols_abert = ["ID", "Cliente", "Responsável", "Esforco_Formatado"]
+                    cols_abert = ["ID", "Cliente", "Responsável", "Esforco_Formatado", "Data Formatada"]
                     df_show_abert = df_filtro_abert[[c for c in cols_abert if c in df_filtro_abert.columns]].copy()
                     if "Esforco_Formatado" in df_show_abert.columns:
                         df_show_abert.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
@@ -234,7 +235,6 @@ def renderizar_aba_gestao():
         if "Motivo Fechamento" in df_charts.columns and not df_charts["Motivo Fechamento"].dropna().empty:
             df_solucionados = df_charts[df_charts["Status"] == "Solucionado"]
             if not df_solucionados.empty:
-                # ⚠️ NOVO: Alternância Motivos de Fechamento
                 opcao_visao_fechamento = st.radio("Visão de Resolução:", ["Gráfico (Top 10)", "Tabela Auditável (Todos)"], horizontal=True, key="rad_fecham")
                 df_fechamento_full = gerar_dados_pareto(df_solucionados, "Motivo Fechamento")
                 
@@ -262,7 +262,7 @@ def renderizar_aba_gestao():
                         st.success(f"🔎 **Auditoria:** Chamados solucionados por **{motivo_fecham_sel}**.")
                         df_filtro_fecham = df_solucionados[df_solucionados["Motivo Fechamento"] == motivo_fecham_sel].copy()
                         
-                        cols_fecham = ["ID", "Cliente", "Responsável", "Esforco_Formatado"]
+                        cols_fecham = ["ID", "Cliente", "Responsável", "Esforco_Formatado", "Data Formatada"]
                         df_show_fecham = df_filtro_fecham[[c for c in cols_fecham if c in df_filtro_fecham.columns]].copy()
                         if "Esforco_Formatado" in df_show_fecham.columns:
                             df_show_fecham.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
@@ -278,10 +278,27 @@ def renderizar_aba_gestao():
     with l1_g1:
         st.markdown("**Evolução Diária de Demandas**")
         if not df_charts.empty:
-            df_trend = df_charts.groupby(df_charts[col_data_graficos].dt.date).size().reset_index(name="Quantidade")
-            fig_trend = px.line(df_trend, x=col_data_graficos, y="Quantidade", markers=True)
-            fig_trend.update_layout(xaxis_title="", yaxis_title="Volume", margin=dict(t=10))
-            st.plotly_chart(fig_trend, use_container_width=True)
+            # ⚠️ TIME-SERIES IMPUTATION: Gera todas as datas do período para impedir cortes nos eixos
+            todas_datas = pd.date_range(start=d_ini, end=d_fim).strftime('%Y-%m-%d')
+            df_trend_base = df_charts.groupby('Data_Ref_Str').size().reset_index(name="Quantidade")
+            
+            # Força a mesclagem preenchendo os dias vazios com zero
+            df_trend_completo = pd.DataFrame({'Data_Ref_Str': todas_datas})
+            df_trend = df_trend_completo.merge(df_trend_base, on='Data_Ref_Str', how='left').fillna(0)
+            
+            # Oculta fuso e minutos para plotagem amigável
+            df_trend['Data Exibicao'] = pd.to_datetime(df_trend['Data_Ref_Str']).dt.strftime('%d/%m/%y')
+            
+            fig_trend = px.line(df_trend, x='Data_Ref_Str', y="Quantidade", markers=True, text="Quantidade")
+            
+            # Trava o Plotly para não interpolar a escala de forma contínua
+            fig_trend.update_xaxes(type='category', tickangle=-45, title="")
+            fig_trend.update_yaxes(title="Volume")
+            fig_trend.update_traces(textposition="top center")
+            fig_trend.update_layout(margin=dict(t=10))
+            
+            # Habilita o clique no nó da linha
+            plot_interativo(fig_trend, df_charts, "Data_Ref_Str", "graf_evolucao_diaria")
 
     with l1_g2:
         st.markdown("**Qualidade de Entrega (SLA por Analista)**")
