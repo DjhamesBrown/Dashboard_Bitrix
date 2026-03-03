@@ -18,11 +18,11 @@ def obter_dicionario_campo(nome_campo_uf):
 
 @st.cache_data(ttl=300)
 def buscar_esforco_tarefas(lista_ids_deals):
-    """Mapeamento de tarefas com bloqueio estrito de responsável (Apenas Equipe Suporte)"""
+    """Mapeamento de tarefas com bloqueio estrito de equipe e suporte a polimorfismo temporal."""
     if not lista_ids_deals: return pd.DataFrame()
     
     todas_tarefas = []
-    chunk_size = 20 # Reduzido para evitar falha silenciosa na API do Bitrix
+    chunk_size = 20 
     
     for i in range(0, len(lista_ids_deals), chunk_size):
         chunk = lista_ids_deals[i:i + chunk_size]
@@ -30,8 +30,9 @@ def buscar_esforco_tarefas(lista_ids_deals):
         
         start = 0
         while True:
+            # ⚠️ CORREÇÃO: Removido o '=' para suportar os arrays criados no dia de hoje (Polimorfismo do Bitrix)
             payload = {
-                "filter": {"=UF_CRM_TASK": chaves_crm}, # '=' força a exatidão vetorial no Bitrix
+                "filter": {"UF_CRM_TASK": chaves_crm}, 
                 "select": ["ID", "TIME_SPENT_IN_LOGS", "UF_CRM_TASK", "RESPONSIBLE_ID"],
                 "start": start
             }
@@ -46,14 +47,14 @@ def buscar_esforco_tarefas(lista_ids_deals):
     df_tasks = pd.DataFrame(todas_tarefas)
     if df_tasks.empty: return pd.DataFrame()
     
+    # ⚠️ BARREIRA DE CLONES (Drop Duplicates assume o papel de limpar as falhas de paginação da API)
     col_id = "id" if "id" in df_tasks.columns else ("ID" if "ID" in df_tasks.columns else None)
     if col_id:
         df_tasks.drop_duplicates(subset=col_id, inplace=True)
         
-    # ⚠️ BARREIRA DE EQUIPE (RBAC) com correção do "Float Bug" do Pandas
+    # ⚠️ BARREIRA DE EQUIPE (RBAC) 
     col_resp = "responsibleId" if "responsibleId" in df_tasks.columns else ("RESPONSIBLE_ID" if "RESPONSIBLE_ID" in df_tasks.columns else None)
     if col_resp:
-        # Extrai os números puros e converte para string exata (Evita que 1219 vire 1219.0)
         df_tasks["resp_clean"] = pd.to_numeric(df_tasks[col_resp], errors='coerce').fillna(0).astype(int).astype(str)
         df_tasks = df_tasks[df_tasks["resp_clean"].isin(config.EQUIPE.keys())]
     
@@ -78,7 +79,6 @@ def buscar_esforco_tarefas(lista_ids_deals):
     else:
         df_tasks["Tempo_Horas"] = 0
     
-    # Agrupa e soma as horas
     df_agrupado = df_tasks.groupby("Deal_ID")["Tempo_Horas"].sum().reset_index()
     df_agrupado["Tempo_Horas"] = df_agrupado["Tempo_Horas"].round(4)
     return df_agrupado
@@ -107,7 +107,7 @@ def buscar_dados_historico(data_inicio, data_fim):
         
         df.drop_duplicates(subset="ID", inplace=True)
         
-        # Merge Matemático com o Motor de Tarefas Isolado
+        # Merge Matemático 
         df_tarefas = buscar_esforco_tarefas(df["ID"].tolist())
         if not df_tarefas.empty:
             df = df.merge(df_tarefas, left_on="ID", right_on="Deal_ID", how="left")
@@ -115,12 +115,11 @@ def buscar_dados_historico(data_inicio, data_fim):
         else:
             df["Esforco_Tarefas_h"] = 0
             
-        # ⚠️ CRIAÇÃO DA COLUNA HH:MM:SS
+        # Transformação para HH:MM:SS
         df["Esforco_Formatado"] = df["Esforco_Tarefas_h"].apply(
             lambda x: f"{int(x*3600)//3600:02d}:{(int(x*3600)%3600)//60:02d}:{int(x*3600)%60:02d}"
         )
         
-        # Tradução Estatística
         for campo_uf, nome_legivel in config.CAMPOS_BITRIX.items():
             if "Motivo" in nome_legivel and campo_uf in df.columns:
                 dic = obter_dicionario_campo(campo_uf)
