@@ -22,7 +22,7 @@ def buscar_esforco_tarefas(lista_ids_deals):
     if not lista_ids_deals: return pd.DataFrame()
     
     todas_tarefas = []
-    chunk_size = 50 
+    chunk_size = 20 # Reduzido para evitar falha silenciosa na API do Bitrix
     
     for i in range(0, len(lista_ids_deals), chunk_size):
         chunk = lista_ids_deals[i:i + chunk_size]
@@ -30,9 +30,8 @@ def buscar_esforco_tarefas(lista_ids_deals):
         
         start = 0
         while True:
-            # Solicita também o ID do Responsável para aplicar a Fronteira
             payload = {
-                "filter": {"UF_CRM_TASK": chaves_crm},
+                "filter": {"=UF_CRM_TASK": chaves_crm}, # '=' força a exatidão vetorial no Bitrix
                 "select": ["ID", "TIME_SPENT_IN_LOGS", "UF_CRM_TASK", "RESPONSIBLE_ID"],
                 "start": start
             }
@@ -47,17 +46,17 @@ def buscar_esforco_tarefas(lista_ids_deals):
     df_tasks = pd.DataFrame(todas_tarefas)
     if df_tasks.empty: return pd.DataFrame()
     
-    # ⚠️ Expurga clones da API
     col_id = "id" if "id" in df_tasks.columns else ("ID" if "ID" in df_tasks.columns else None)
     if col_id:
         df_tasks.drop_duplicates(subset=col_id, inplace=True)
         
-    # ⚠️ BARREIRA DE EQUIPE (RBAC): Remove tarefas feitas por terceiros fora do config.py
+    # ⚠️ BARREIRA DE EQUIPE (RBAC) com correção do "Float Bug" do Pandas
     col_resp = "responsibleId" if "responsibleId" in df_tasks.columns else ("RESPONSIBLE_ID" if "RESPONSIBLE_ID" in df_tasks.columns else None)
     if col_resp:
-        df_tasks = df_tasks[df_tasks[col_resp].astype(str).isin(config.EQUIPE.keys())]
+        # Extrai os números puros e converte para string exata (Evita que 1219 vire 1219.0)
+        df_tasks["resp_clean"] = pd.to_numeric(df_tasks[col_resp], errors='coerce').fillna(0).astype(int).astype(str)
+        df_tasks = df_tasks[df_tasks["resp_clean"].isin(config.EQUIPE.keys())]
     
-    # Tratamento de Polimorfismo do Bitrix
     def extrair_id(val):
         if not val: return ""
         if isinstance(val, list):
@@ -79,9 +78,9 @@ def buscar_esforco_tarefas(lista_ids_deals):
     else:
         df_tasks["Tempo_Horas"] = 0
     
-    # Agrupa e soma as horas (Apenas da equipe autorizada)
+    # Agrupa e soma as horas
     df_agrupado = df_tasks.groupby("Deal_ID")["Tempo_Horas"].sum().reset_index()
-    df_agrupado["Tempo_Horas"] = df_agrupado["Tempo_Horas"].round(4) # Mantém precisão analítica
+    df_agrupado["Tempo_Horas"] = df_agrupado["Tempo_Horas"].round(4)
     return df_agrupado
 
 @st.cache_data(ttl=300) 
