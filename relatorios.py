@@ -24,11 +24,11 @@ def renderizar_aba_gestao():
                     df_filtrado = df_base[df_base[coluna_filtro].isin(valores)]
                     st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtrado)} chamado(s) localizado(s) para '{', '.join(map(str, valores))}'.")
                     
-                    # ⚠️ Inclusão do Motivo Fechamento e Troca para Formato HH:MM:SS
+                    # ⚠️ Inclusão do Motivo Fechamento e Formato HH:MM:SS
                     cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Motivo Fechamento", "Esforco_Formatado"]
                     df_show = df_filtrado[[c for c in cols if c in df_filtrado.columns]].copy()
                     
-                    # Renomeia a coluna visualmente
+                    # Renomeia a coluna visualmente para a tabela
                     if "Esforco_Formatado" in df_show.columns:
                         df_show.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
                         
@@ -122,7 +122,7 @@ def renderizar_aba_gestao():
     with st.expander("ℹ️ Como ler este relatório (Otimização de Custos)"):
         st.markdown("""
         **Para que serve:** Identificar os clientes que mais consomem as horas faturáveis da equipe e como a carga horária direta está dividida entre os analistas.
-        **Cálculo Matemático:** O sistema varre o banco de tarefas do Bitrix, extrai o campo `TIME_SPENT_IN_LOGS` exclusivo da **Equipe de Suporte** e soma os segundos, convertendo para o formato HH:MM:SS.
+        **Cálculo Matemático:** O sistema varre o banco de tarefas do Bitrix, extrai o campo `TIME_SPENT_IN_LOGS` **exclusivo da Equipe de Suporte** e soma os segundos, convertendo para o formato HH:MM:SS.
         """)
 
     def formatar_hhmmss(horas_dec):
@@ -137,7 +137,6 @@ def renderizar_aba_gestao():
         mttr_real = df_com_esforco["Esforco_Tarefas_h"].mean() if not df_com_esforco.empty else 0
         
         t1, t2 = st.columns(2)
-        # ⚠️ Exibição de valores convertidos para HH:MM:SS
         t1.info(f"**Σ Custo Total Faturável:** {formatar_hhmmss(tempo_total)} (HH:MM:SS) trabalhadas pela equipe.")
         t2.info(f"**μ MTTR Real (Média por Chamado):** {formatar_hhmmss(mttr_real)} (HH:MM:SS) de esforço direto.")
         
