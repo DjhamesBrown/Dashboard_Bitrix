@@ -15,7 +15,6 @@ def renderizar_aba_gestao():
             if pontos:
                 valores = []
                 for p in pontos:
-                    # Captura robusta independente do tipo de gráfico (x, y ou label)
                     val = p.get("label") or p.get("y") or p.get("x")
                     if val is not None: valores.append(val)
                 
@@ -33,7 +32,6 @@ def renderizar_aba_gestao():
                     st.dataframe(df_show, use_container_width=True, hide_index=True)
 
     def plot_interativo(fig, df_charts, coluna_filtro, key):
-        # Legendas reativadas livremente
         try:
             selecao = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points", key=key)
             exibir_drilldown(selecao, df_charts, coluna_filtro)
@@ -61,7 +59,6 @@ def renderizar_aba_gestao():
 
     clientes_sel = st.sidebar.multiselect("Filtrar Clientes", options=sorted(df["Cliente"].unique()))
 
-    # Aplicação local da máscara de data (Resolve o Timezone Truncation)
     mask_charts = (df[col_data_graficos].dt.date >= d_ini) & (df[col_data_graficos].dt.date <= d_fim)
     df_base_temporal = df[mask_charts].copy()
 
@@ -129,16 +126,26 @@ def renderizar_aba_gestao():
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             if "Esforco_Tarefas_h" in df_charts:
-                df_tempo_cli = df_charts.groupby("Cliente")["Esforco_Tarefas_h"].sum().reset_index().nlargest(10, "Esforco_Tarefas_h")
+                # ⚠️ NOVO: Botão de alternância (Top 15 x Todos)
+                opcao_visao_cli = st.radio("Quantidade de Clientes a exibir:", ["Top 15", "Todos"], horizontal=True)
+                
+                df_agrupado_cli = df_charts.groupby("Cliente")["Esforco_Tarefas_h"].sum().reset_index()
+                
+                if opcao_visao_cli == "Top 15":
+                    df_tempo_cli = df_agrupado_cli.nlargest(15, "Esforco_Tarefas_h")
+                    tit_graf = "Maiores Consumidores de Horas (Top 15)"
+                else:
+                    df_tempo_cli = df_agrupado_cli.sort_values(by="Esforco_Tarefas_h", ascending=False)
+                    tit_graf = "Maiores Consumidores de Horas (Todos)"
+                
                 df_tempo_cli["Tempo Texto"] = df_tempo_cli["Esforco_Tarefas_h"].apply(formatar_hhmmss)
                 
-                fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title="Maiores Consumidores de Horas (Top 10 Clientes)", text='Tempo Texto')
+                fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title=tit_graf, text='Tempo Texto')
                 fig_t1.update_layout(yaxis_title="Volume de Horas (Escala Dec)")
                 plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli")
             
         with col_t2:
             if "Esforco_Tarefas_h" in df_charts:
-                # ⚠️ SUBSTITUIÇÃO: Gráfico de Pizza instável substituído por Barras Horizontais precisas para Drill-Down
                 df_tempo_ana = df_charts.groupby("Responsável")["Esforco_Tarefas_h"].sum().reset_index().sort_values("Esforco_Tarefas_h", ascending=True)
                 df_tempo_ana["Tempo Texto"] = df_tempo_ana["Esforco_Tarefas_h"].apply(formatar_hhmmss)
                 
