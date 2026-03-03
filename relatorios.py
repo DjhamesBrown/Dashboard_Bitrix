@@ -205,4 +205,18 @@ def renderizar_aba_gestao():
     with l1_g2:
         st.markdown("**Qualidade de Entrega (SLA por Analista)**")
         if not df_charts.empty:
-            df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset
+            df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset_index(name='Total')
+            cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
+            fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla)
+            fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
+            plot_interativo(fig_sla, df_charts, "Responsável", "graf_sla_qualidade")
+
+    # --- RELATÓRIO DETALHADO ---
+    with st.expander("📄 Visualizar Matriz Bruta (Auditoria)"):
+        if not df_charts.empty:
+            cols_view = ["ID", "Responsável", "Cliente", "Fase Nome", "Lead_Time_Bruto", "Esforco_Tarefas_h", "Motivo Abertura", "Motivo Fechamento", "Data Formatada"]
+            cols_view_present = [col for col in cols_view if col in df_charts.columns]
+            
+            st.dataframe(df_charts[cols_view_present], width="stretch", hide_index=True)
+            csv = df_charts.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Exportar Relatório para CSV", csv, f"auditoria_completa_{d_ini}.csv", "text/csv")
