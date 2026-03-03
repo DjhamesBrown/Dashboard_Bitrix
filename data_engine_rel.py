@@ -18,7 +18,6 @@ def obter_dicionario_campo(nome_campo_uf):
 
 @st.cache_data(ttl=300)
 def buscar_esforco_tarefas(lista_ids_deals):
-    """Mapeamento de tarefas com bloqueio estrito de equipe e suporte a polimorfismo temporal."""
     if not lista_ids_deals: return pd.DataFrame()
     
     todas_tarefas = []
@@ -30,7 +29,6 @@ def buscar_esforco_tarefas(lista_ids_deals):
         
         start = 0
         while True:
-            # ⚠️ CORREÇÃO: Removido o '=' para suportar os arrays criados no dia de hoje (Polimorfismo do Bitrix)
             payload = {
                 "filter": {"UF_CRM_TASK": chaves_crm}, 
                 "select": ["ID", "TIME_SPENT_IN_LOGS", "UF_CRM_TASK", "RESPONSIBLE_ID"],
@@ -47,12 +45,10 @@ def buscar_esforco_tarefas(lista_ids_deals):
     df_tasks = pd.DataFrame(todas_tarefas)
     if df_tasks.empty: return pd.DataFrame()
     
-    # ⚠️ BARREIRA DE CLONES (Drop Duplicates assume o papel de limpar as falhas de paginação da API)
     col_id = "id" if "id" in df_tasks.columns else ("ID" if "ID" in df_tasks.columns else None)
     if col_id:
         df_tasks.drop_duplicates(subset=col_id, inplace=True)
         
-    # ⚠️ BARREIRA DE EQUIPE (RBAC) 
     col_resp = "responsibleId" if "responsibleId" in df_tasks.columns else ("RESPONSIBLE_ID" if "RESPONSIBLE_ID" in df_tasks.columns else None)
     if col_resp:
         df_tasks["resp_clean"] = pd.to_numeric(df_tasks[col_resp], errors='coerce').fillna(0).astype(int).astype(str)
@@ -86,8 +82,13 @@ def buscar_esforco_tarefas(lista_ids_deals):
 @st.cache_data(ttl=300) 
 def buscar_dados_historico(data_inicio, data_fim):
     try:
-        inicio_str = data_inicio.strftime("%Y-%m-%d") + "T00:00:00"
-        fim_str = data_fim.strftime("%Y-%m-%d") + "T23:59:59"
+        # ⚠️ EXPANSÃO DE JANELA: Pede dados +2/-2 dias para a API evitar o corte de fuso horário do Bitrix. O Pandas filtrará os excessos.
+        data_inicio_api = data_inicio - timedelta(days=2)
+        data_fim_api = data_fim + timedelta(days=2)
+        
+        inicio_str = data_inicio_api.strftime("%Y-%m-%d") + "T00:00:00"
+        fim_str = data_fim_api.strftime("%Y-%m-%d") + "T23:59:59"
+        
         todos_dados = []
         filtros_api = [
             {">=DATE_CREATE": inicio_str, "<=DATE_CREATE": fim_str, "CATEGORY_ID": 8},
@@ -107,7 +108,6 @@ def buscar_dados_historico(data_inicio, data_fim):
         
         df.drop_duplicates(subset="ID", inplace=True)
         
-        # Merge Matemático 
         df_tarefas = buscar_esforco_tarefas(df["ID"].tolist())
         if not df_tarefas.empty:
             df = df.merge(df_tarefas, left_on="ID", right_on="Deal_ID", how="left")
@@ -115,7 +115,6 @@ def buscar_dados_historico(data_inicio, data_fim):
         else:
             df["Esforco_Tarefas_h"] = 0
             
-        # Transformação para HH:MM:SS
         df["Esforco_Formatado"] = df["Esforco_Tarefas_h"].apply(
             lambda x: f"{int(x*3600)//3600:02d}:{(int(x*3600)%3600)//60:02d}:{int(x*3600)%60:02d}"
         )
