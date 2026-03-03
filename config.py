@@ -6,7 +6,7 @@ WEBHOOK_URL = st.secrets["BITRIX_WEBHOOK_URL"]
 
 # Matriz de Controle de Acesso (RBAC) - Defina no secrets.toml
 CREDENCIAIS = {
-    "diretoria": {"user": st.secrets.get("DIR_USER", "Mcrb"), "pass": st.secrets.get("DIR_PASS", "Mr@2026#$"), "role": "gestor"},
+    "diretoria": {"user": st.secrets.get("DIR_USER", "Mcrb"), "pass": st.secrets.get("DIR_PASS", "Mc@2026#$"), "role": "gestor"},
     "suporte": {"user": st.secrets.get("SUP_USER", "999"), "pass": st.secrets.get("SUP_PASS", "2937"), "role": "operador"}
 }
 
@@ -48,4 +48,5 @@ CAMPOS_BITRIX = {
     "UF_CRM_1685489465": "Motivo Abertura",
     "UF_CRM_1636030396": "Motivo Fechamento"
 }
+
 
