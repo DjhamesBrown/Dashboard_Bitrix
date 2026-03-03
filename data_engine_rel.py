@@ -16,12 +16,13 @@ def obter_dicionario_campo(nome_campo_uf):
         print(f"Erro dicionário: {e}")
     return {}
 
+@st.cache_data(ttl=300)
 def buscar_esforco_tarefas(lista_ids_deals):
-    """Mapeamento vetorial de tarefas cruzando chaves primárias do CRM em Lotes (Batch)"""
+    """Mapeamento de tarefas cruzando chaves primárias do CRM com expurgo de clones da API"""
     if not lista_ids_deals: return pd.DataFrame()
     
     todas_tarefas = []
-    chunk_size = 50 # Divide em lotes de 50 para não estourar o limite de URL da API
+    chunk_size = 50 
     
     for i in range(0, len(lista_ids_deals), chunk_size):
         chunk = lista_ids_deals[i:i + chunk_size]
@@ -45,7 +46,12 @@ def buscar_esforco_tarefas(lista_ids_deals):
     df_tasks = pd.DataFrame(todas_tarefas)
     if df_tasks.empty: return pd.DataFrame()
     
-    # Tratamento de Polimorfismo (Garante a extração independente se for String ou Lista)
+    # ⚠️ BARREIRA MATEMÁTICA: Expurga tarefas duplicadas geradas por falha de paginação do Bitrix
+    col_id = "id" if "id" in df_tasks.columns else ("ID" if "ID" in df_tasks.columns else None)
+    if col_id:
+        df_tasks.drop_duplicates(subset=col_id, inplace=True)
+    
+    # Tratamento de Polimorfismo
     def extrair_id(val):
         if not val: return ""
         if isinstance(val, list):
@@ -55,15 +61,21 @@ def buscar_esforco_tarefas(lista_ids_deals):
             return val.replace("D_", "")
         return ""
         
-    if "ufCrmTask" in df_tasks.columns:
-        df_tasks["Deal_ID"] = df_tasks["ufCrmTask"].apply(extrair_id)
+    col_crm = "ufCrmTask" if "ufCrmTask" in df_tasks.columns else ("UF_CRM_TASK" if "UF_CRM_TASK" in df_tasks.columns else None)
+    if col_crm:
+        df_tasks["Deal_ID"] = df_tasks[col_crm].apply(extrair_id)
     else:
         df_tasks["Deal_ID"] = ""
         
-    df_tasks["Tempo_Horas"] = pd.to_numeric(df_tasks.get("timeSpentInLogs", 0), errors='coerce').fillna(0) / 3600
+    col_time = "timeSpentInLogs" if "timeSpentInLogs" in df_tasks.columns else ("TIME_SPENT_IN_LOGS" if "TIME_SPENT_IN_LOGS" in df_tasks.columns else None)
+    if col_time:
+        df_tasks["Tempo_Horas"] = pd.to_numeric(df_tasks[col_time], errors='coerce').fillna(0) / 3600
+    else:
+        df_tasks["Tempo_Horas"] = 0
     
-    # Soma as horas de múltiplas tarefas caso existam dentro do mesmo chamado
+    # Agrupa e soma garantindo apenas 2 casas decimais
     df_agrupado = df_tasks.groupby("Deal_ID")["Tempo_Horas"].sum().reset_index()
+    df_agrupado["Tempo_Horas"] = df_agrupado["Tempo_Horas"].round(2)
     return df_agrupado
 
 @st.cache_data(ttl=300) 
@@ -90,10 +102,8 @@ def buscar_dados_historico(data_inicio, data_fim):
         
         df.drop_duplicates(subset="ID", inplace=True)
         
-        # Extração Exata do Esforço das Tarefas vinculadas aos IDs encontrados
+        # Merge Matemático com o Motor de Tarefas
         df_tarefas = buscar_esforco_tarefas(df["ID"].tolist())
-        
-        # Merge Matemático
         if not df_tarefas.empty:
             df = df.merge(df_tarefas, left_on="ID", right_on="Deal_ID", how="left")
             df["Esforco_Tarefas_h"] = df["Tempo_Horas"].fillna(0)
@@ -114,7 +124,6 @@ def buscar_dados_historico(data_inicio, data_fim):
         df["Data Formatada"] = df["Data Abertura"].dt.strftime('%d/%m %H:%M')
         
         agora = datetime.now()
-        # Cálculo de LEAD TIME (Tempo de Vida do Chamado)
         df["Lead_Time_Bruto"] = df.apply(lambda row: (row["Data Modificacao"] if row["Fase_Cod"] == "C8:WON" else agora) - row["Data Abertura"], axis=1).dt.total_seconds() / 3600
         df["Horas Passadas"] = (agora - df["Data Abertura"]).dt.total_seconds() / 3600
         
