@@ -16,41 +16,55 @@ def obter_dicionario_campo(nome_campo_uf):
         print(f"Erro dicionário: {e}")
     return {}
 
-@st.cache_data(ttl=300)
-def buscar_esforco_tarefas(data_inicio, data_fim):
-    """Mapeia as tarefas criadas/modificadas no período para calcular as horas faturáveis exatas ($O(1)$)"""
-    try:
-        inicio_str = data_inicio.strftime("%Y-%m-%d") + "T00:00:00"
-        fim_str = data_fim.strftime("%Y-%m-%d") + "T23:59:59"
-        todas_tarefas = []
+def buscar_esforco_tarefas(lista_ids_deals):
+    """Mapeamento vetorial de tarefas cruzando chaves primárias do CRM em Lotes (Batch)"""
+    if not lista_ids_deals: return pd.DataFrame()
+    
+    todas_tarefas = []
+    chunk_size = 50 # Divide em lotes de 50 para não estourar o limite de URL da API
+    
+    for i in range(0, len(lista_ids_deals), chunk_size):
+        chunk = lista_ids_deals[i:i + chunk_size]
+        chaves_crm = [f"D_{id}" for id in chunk]
         
         start = 0
         while True:
-            # Filtra todas as tarefas que tenham vínculo com o CRM e tempo investido > 0
             payload = {
-                "filter": {">=CHANGED_DATE": inicio_str, "<=CHANGED_DATE": fim_str, "!=UF_CRM_TASK": False, ">TIME_SPENT_IN_LOGS": 0},
+                "filter": {"UF_CRM_TASK": chaves_crm},
                 "select": ["ID", "TIME_SPENT_IN_LOGS", "UF_CRM_TASK"],
                 "start": start
             }
             resp = requests.post(f"{config.WEBHOOK_URL}/tasks.task.list", json=payload).json()
-            if "result" in resp and "tasks" in resp["result"]: todas_tarefas.extend(resp["result"]["tasks"])
+            
+            if "result" in resp and "tasks" in resp["result"]: 
+                todas_tarefas.extend(resp["result"]["tasks"])
+            
             if "next" in resp: start = resp["next"]
             else: break
             
-        df_tasks = pd.DataFrame(todas_tarefas)
-        if df_tasks.empty: return pd.DataFrame()
+    df_tasks = pd.DataFrame(todas_tarefas)
+    if df_tasks.empty: return pd.DataFrame()
+    
+    # Tratamento de Polimorfismo (Garante a extração independente se for String ou Lista)
+    def extrair_id(val):
+        if not val: return ""
+        if isinstance(val, list):
+            for item in val:
+                if str(item).startswith("D_"): return str(item).replace("D_", "")
+        elif isinstance(val, str) and val.startswith("D_"):
+            return val.replace("D_", "")
+        return ""
         
-        # Limpeza vetorial: Extrai apenas o número do ID do Deal (ex: "D_55567" -> "55567")
-        # UF_CRM_TASK geralmente é uma lista no Bitrix, pegamos o primeiro elemento
-        df_tasks["Deal_ID"] = df_tasks["ufCrmTask"].apply(lambda x: str(x[0]).replace("D_", "") if isinstance(x, list) and len(x) > 0 else "")
-        df_tasks["Tempo_Horas"] = pd.to_numeric(df_tasks["timeSpentInLogs"], errors='coerce').fillna(0) / 3600
+    if "ufCrmTask" in df_tasks.columns:
+        df_tasks["Deal_ID"] = df_tasks["ufCrmTask"].apply(extrair_id)
+    else:
+        df_tasks["Deal_ID"] = ""
         
-        # Agrupa sumariamente o tempo por Chamado
-        df_agrupado = df_tasks.groupby("Deal_ID")["Tempo_Horas"].sum().reset_index()
-        return df_agrupado
-    except Exception as e:
-        print(f"Erro ao extrair tarefas: {e}")
-        return pd.DataFrame()
+    df_tasks["Tempo_Horas"] = pd.to_numeric(df_tasks.get("timeSpentInLogs", 0), errors='coerce').fillna(0) / 3600
+    
+    # Soma as horas de múltiplas tarefas caso existam dentro do mesmo chamado
+    df_agrupado = df_tasks.groupby("Deal_ID")["Tempo_Horas"].sum().reset_index()
+    return df_agrupado
 
 @st.cache_data(ttl=300) 
 def buscar_dados_historico(data_inicio, data_fim):
@@ -76,6 +90,16 @@ def buscar_dados_historico(data_inicio, data_fim):
         
         df.drop_duplicates(subset="ID", inplace=True)
         
+        # Extração Exata do Esforço das Tarefas vinculadas aos IDs encontrados
+        df_tarefas = buscar_esforco_tarefas(df["ID"].tolist())
+        
+        # Merge Matemático
+        if not df_tarefas.empty:
+            df = df.merge(df_tarefas, left_on="ID", right_on="Deal_ID", how="left")
+            df["Esforco_Tarefas_h"] = df["Tempo_Horas"].fillna(0)
+        else:
+            df["Esforco_Tarefas_h"] = 0
+        
         # Tradução Estatística
         for campo_uf, nome_legivel in config.CAMPOS_BITRIX.items():
             if "Motivo" in nome_legivel and campo_uf in df.columns:
@@ -94,14 +118,6 @@ def buscar_dados_historico(data_inicio, data_fim):
         df["Lead_Time_Bruto"] = df.apply(lambda row: (row["Data Modificacao"] if row["Fase_Cod"] == "C8:WON" else agora) - row["Data Abertura"], axis=1).dt.total_seconds() / 3600
         df["Horas Passadas"] = (agora - df["Data Abertura"]).dt.total_seconds() / 3600
         
-        # Merge com o tempo de esforço real das tarefas
-        df_tarefas = buscar_esforco_tarefas(data_inicio, data_fim)
-        if not df_tarefas.empty:
-            df = df.merge(df_tarefas, left_on="ID", right_on="Deal_ID", how="left")
-            df["Esforco_Tarefas_h"] = df["Tempo_Horas"].fillna(0)
-        else:
-            df["Esforco_Tarefas_h"] = 0
-
         def definir_status(row):
             cod = row["Fase_Cod"]
             if cod == "C8:WON": return "Solucionado"
