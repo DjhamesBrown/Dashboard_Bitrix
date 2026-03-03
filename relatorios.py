@@ -9,13 +9,17 @@ def renderizar_aba_gestao():
     st.header("📊 Inteligência de Dados e Gestão (ITIL 4 - CSI)", 
               help="[Princípio ITIL: Continual Service Improvement] Este módulo transforma os dados transacionais do Bitrix24 em inteligência estratégica para tomada de decisão.")
     
-    def exibir_drilldown(selecao, df_base, coluna_filtro):
+    # ⚠️ NOVO: Inclusão do parâmetro 'eixo_alvo' para blindar a captura do clique
+    def exibir_drilldown(selecao, df_base, coluna_filtro, eixo_alvo):
         if selecao and isinstance(selecao, dict) and "selection" in selecao:
             pontos = selecao["selection"].get("points", [])
             if pontos:
                 valores = []
                 for p in pontos:
-                    val = p.get("label") or p.get("y") or p.get("x")
+                    # Captura exatamente o eixo instruído pelo programador
+                    val = p.get(eixo_alvo)
+                    if val is None: # Fallback de segurança
+                        val = p.get("label") or p.get("x") or p.get("y")
                     if val is not None: valores.append(val)
                 
                 valores = list(set(valores))
@@ -31,10 +35,10 @@ def renderizar_aba_gestao():
                         
                     st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-    def plot_interativo(fig, df_charts, coluna_filtro, key):
+    def plot_interativo(fig, df_charts, coluna_filtro, key, eixo_alvo):
         try:
             selecao = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points", key=key)
-            exibir_drilldown(selecao, df_charts, coluna_filtro)
+            exibir_drilldown(selecao, df_charts, coluna_filtro, eixo_alvo)
         except TypeError:
             st.plotly_chart(fig, use_container_width=True, key=key)
 
@@ -102,7 +106,6 @@ def renderizar_aba_gestao():
     if not df_charts.empty:
         df_charts['Status_SLA'] = df_charts['Estourado'].map({True: 'Estourado 🚨', False: 'No Prazo ✅'})
         df_charts["Data Formatada"] = df_charts["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
-        # ⚠️ CHAVE DE LIGAÇÃO: Cria a coluna de data pura como texto para permitir o clique exato
         df_charts['Data_Ref_Str'] = df_charts[col_data_graficos].dt.strftime('%Y-%m-%d')
 
     st.info("💡 **Atenção (Drill-Down):** Interaja com os gráficos e tabelas abaixo clicando diretamente nos **pontos, barras ou linhas** para detalhar as informações.")
@@ -138,7 +141,7 @@ def renderizar_aba_gestao():
                     
                     fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title="Maiores Consumidores de Horas (Top 15)", text='Tempo Texto')
                     fig_t1.update_layout(yaxis_title="Volume de Horas (Escala Dec)")
-                    plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli")
+                    plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli", eixo_alvo="x") # Eixo X
                 
                 else:
                     st.markdown("**Matriz Completa de Clientes (Selecione uma linha)**")
@@ -179,7 +182,7 @@ def renderizar_aba_gestao():
                 fig_t2 = px.bar(df_tempo_ana, y='Responsável', x='Esforco_Tarefas_h', orientation='h', 
                                 title="Alocação de Tempo por Analista", text='Tempo Texto', color='Responsável')
                 fig_t2.update_layout(xaxis_title="Volume de Horas", yaxis_title="", showlegend=False)
-                plot_interativo(fig_t2, df_charts, "Responsável", "graf_esforco_ana")
+                plot_interativo(fig_t2, df_charts, "Responsável", "graf_esforco_ana", eixo_alvo="y") # Eixo Y
 
     st.markdown("---")
 
@@ -203,7 +206,7 @@ def renderizar_aba_gestao():
                 df_abertura_top = df_abertura_full.head(10)
                 fig_abertura = px.bar(df_abertura_top, y='Motivo Abertura', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Blues')
                 fig_abertura.update_layout(xaxis_title="Σ Volume", yaxis_title="")
-                plot_interativo(fig_abertura, df_charts, "Motivo Abertura", "graf_motivo_abertura")
+                plot_interativo(fig_abertura, df_charts, "Motivo Abertura", "graf_motivo_abertura", eixo_alvo="y") # Eixo Y
             else:
                 st.markdown("**Lista Completa de Motivos (Selecione uma linha)**")
                 evento_abert = st.dataframe(
@@ -242,7 +245,7 @@ def renderizar_aba_gestao():
                     df_fechamento_top = df_fechamento_full.head(10)
                     fig_fechamento = px.bar(df_fechamento_top, y='Motivo Fechamento', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Greens')
                     fig_fechamento.update_layout(xaxis_title="Σ Volume", yaxis_title="")
-                    plot_interativo(fig_fechamento, df_charts, "Motivo Fechamento", "graf_motivo_fechamento")
+                    plot_interativo(fig_fechamento, df_charts, "Motivo Fechamento", "graf_motivo_fechamento", eixo_alvo="y") # Eixo Y
                 else:
                     st.markdown("**Lista Completa de Motivos (Selecione uma linha)**")
                     evento_fecham = st.dataframe(
@@ -278,27 +281,23 @@ def renderizar_aba_gestao():
     with l1_g1:
         st.markdown("**Evolução Diária de Demandas**")
         if not df_charts.empty:
-            # ⚠️ TIME-SERIES IMPUTATION: Gera todas as datas do período para impedir cortes nos eixos
             todas_datas = pd.date_range(start=d_ini, end=d_fim).strftime('%Y-%m-%d')
             df_trend_base = df_charts.groupby('Data_Ref_Str').size().reset_index(name="Quantidade")
             
-            # Força a mesclagem preenchendo os dias vazios com zero
             df_trend_completo = pd.DataFrame({'Data_Ref_Str': todas_datas})
             df_trend = df_trend_completo.merge(df_trend_base, on='Data_Ref_Str', how='left').fillna(0)
             
-            # Oculta fuso e minutos para plotagem amigável
             df_trend['Data Exibicao'] = pd.to_datetime(df_trend['Data_Ref_Str']).dt.strftime('%d/%m/%y')
             
             fig_trend = px.line(df_trend, x='Data_Ref_Str', y="Quantidade", markers=True, text="Quantidade")
             
-            # Trava o Plotly para não interpolar a escala de forma contínua
             fig_trend.update_xaxes(type='category', tickangle=-45, title="")
             fig_trend.update_yaxes(title="Volume")
             fig_trend.update_traces(textposition="top center")
             fig_trend.update_layout(margin=dict(t=10))
             
-            # Habilita o clique no nó da linha
-            plot_interativo(fig_trend, df_charts, "Data_Ref_Str", "graf_evolucao_diaria")
+            # ⚠️ TRAVA MATEMÁTICA: Exige expressamente o eixo X (Data) ao clicar no ponto
+            plot_interativo(fig_trend, df_charts, "Data_Ref_Str", "graf_evolucao_diaria", eixo_alvo="x") 
 
     with l1_g2:
         st.markdown("**Qualidade de Entrega (SLA por Analista)**")
@@ -307,7 +306,7 @@ def renderizar_aba_gestao():
             cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
             fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla)
             fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
-            plot_interativo(fig_sla, df_charts, "Responsável", "graf_sla_qualidade")
+            plot_interativo(fig_sla, df_charts, "Responsável", "graf_sla_qualidade", eixo_alvo="x") # Eixo X
 
     # --- RELATÓRIO DETALHADO ---
     with st.expander("📄 Visualizar Matriz Bruta (Auditoria)"):
