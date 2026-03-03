@@ -6,7 +6,8 @@ from datetime import date, datetime
 import data_engine_rel
 
 def renderizar_aba_gestao():
-    st.header("📊 Inteligência de Dados e Gestão (ITIL 4 - CSI)")
+    st.header("📊 Inteligência de Dados e Gestão (ITIL 4 - CSI)", 
+              help="[Princípio ITIL: Continual Service Improvement] Este módulo transforma os dados transacionais do Bitrix24 em inteligência estratégica para tomada de decisão.")
     
     # --- FUNÇÃO DE DRILL-DOWN MATEMÁTICO ---
     def exibir_drilldown(selecao, df_base, coluna_filtro, is_pie=False, is_horizontal=False):
@@ -82,8 +83,8 @@ def renderizar_aba_gestao():
     st.subheader(f"📈 Indicadores do Período", help="Totalizadores quantitativos do setor. Respondem dinamicamente aos filtros aplicados na barra lateral esquerda.")
     with st.expander("ℹ️ Dicionário de Métricas (Como são calculadas)"):
         st.markdown("""
-        * **Volume Abertos:** Soma absoluta ($N$) de tickets criados no período. Indica a demanda entrante.
-        * **Solucionados:** Tickets finalizados (WON). A porcentagem indica Eficiência = $(Solucionados / Abertos) \times 100$.
+        * **Volume Abertos:** Soma absoluta de tickets criados no período. Indica a demanda entrante.
+        * **Solucionados:** Tickets finalizados (WON). A porcentagem indica Eficiência (Solucionados / Abertos).
         * **SLA Cumprido/Crítico:** Tickets resolvidos dentro vs fora da meta de tempo do contrato.
         * **FCR (First Call Resolution):** Chamados onde a soma do *cronômetro das tarefas* foi inferior a 1 hora. Indica alta destreza técnica.
         * **Vazão:** Média aritmética de entregas diárias da equipe.
@@ -122,20 +123,22 @@ def renderizar_aba_gestao():
         t1, t2, t3 = st.columns(3)
         t1.info(f"**Σ Custo Total Faturável:** {tempo_total:.1f} Horas trabalhadas pela equipe.")
         t2.info(f"**μ MTTR Real (Média por Chamado):** {mttr_real:.1f} Horas de esforço direto.")
-        t3.success("💡 **Foco Gerencial:** Clique nas barras do gráfico para detalhar os chamados daquele cliente ofensor.")
+        t3.success("💡 **Foco Gerencial:** Clique diretamente nas barras ou nas fatias dos gráficos para ver os detalhes.")
         
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             if "Esforco_Tarefas_h" in df_charts:
                 df_tempo_cli = df_charts.groupby("Cliente")["Esforco_Tarefas_h"].sum().reset_index().nlargest(10, "Esforco_Tarefas_h")
-                fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title="Maiores Consumidores de Horas (Top 10 Clientes)", text_auto='.1f')
+                fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title="Top 10 Clientes<br><sup>(👆 Clique nas barras para detalhar)</sup>", text_auto='.1f')
                 fig_t1.update_layout(yaxis_title="Σ Horas Faturáveis")
                 plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli", is_horizontal=False)
             
         with col_t2:
             if "Esforco_Tarefas_h" in df_charts:
                 df_tempo_ana = df_charts.groupby("Responsável")["Esforco_Tarefas_h"].sum().reset_index()
-                fig_t2 = px.pie(df_tempo_ana, values='Esforco_Tarefas_h', names='Responsável', title="Alocação de Tempo por Analista", hole=0.3)
+                fig_t2 = px.pie(df_tempo_ana, values='Esforco_Tarefas_h', names='Responsável', title="Alocação por Analista<br><sup>(👆 Clique na fatia colorida para detalhar)</sup>", hole=0.3)
+                # O comando abaixo trava o evento nativo de esconder os dados ao clicar na legenda
+                fig_t2.update_layout(legend=dict(itemclick=False, itemdoubleclick=False))
                 plot_interativo(fig_t2, df_charts, "Responsável", "graf_esforco_ana", is_pie=True)
 
     st.markdown("---")
@@ -160,7 +163,7 @@ def renderizar_aba_gestao():
         st.markdown("**Matriz de Motivos de Abertura (Entrada)**")
         if "Motivo Abertura" in df_charts.columns and not df_charts["Motivo Abertura"].dropna().empty:
             df_abertura = gerar_dados_pareto(df_charts, "Motivo Abertura").head(10) 
-            fig_abertura = px.bar(df_abertura, y='Motivo Abertura', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Blues')
+            fig_abertura = px.bar(df_abertura, y='Motivo Abertura', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Blues', title="<br><sup>(👆 Clique nas barras para detalhar)</sup>")
             fig_abertura.update_layout(xaxis_title="Σ Volume", yaxis_title="")
             plot_interativo(fig_abertura, df_charts, "Motivo Abertura", "graf_motivo_abertura", is_horizontal=True)
 
@@ -170,7 +173,7 @@ def renderizar_aba_gestao():
             df_solucionados = df_charts[df_charts["Status"] == "Solucionado"]
             if not df_solucionados.empty:
                 df_fechamento = gerar_dados_pareto(df_solucionados, "Motivo Fechamento").head(10)
-                fig_fechamento = px.bar(df_fechamento, y='Motivo Fechamento', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Greens')
+                fig_fechamento = px.bar(df_fechamento, y='Motivo Fechamento', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Greens', title="<br><sup>(👆 Clique nas barras para detalhar)</sup>")
                 fig_fechamento.update_layout(xaxis_title="Σ Volume", yaxis_title="")
                 plot_interativo(fig_fechamento, df_charts, "Motivo Fechamento", "graf_motivo_fechamento", is_horizontal=True)
 
@@ -199,14 +202,14 @@ def renderizar_aba_gestao():
         if not df_charts.empty:
             df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset_index(name='Total')
             cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
-            fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla)
-            fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
+            fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla, title="<br><sup>(👆 Clique nas barras para detalhar)</sup>")
+            # Trava a legenda também neste gráfico para manter a consistência de UX
+            fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10), legend=dict(itemclick=False, itemdoubleclick=False))
             plot_interativo(fig_sla, df_charts, "Responsável", "graf_sla_qualidade", is_horizontal=False)
 
     # --- RELATÓRIO DETALHADO ---
     with st.expander("📄 Visualizar Matriz Bruta (Auditoria)"):
         if not df_charts.empty:
-            # Inclui o Lead Time Bruto e o Esforço de Tarefas para cruzamento via Excel caso a diretoria exporte
             cols_view = ["ID", "Responsável", "Cliente", "Fase Nome", "Lead_Time_Bruto", "Esforco_Tarefas_h", "Motivo Abertura", "Motivo Fechamento", "Data Formatada"]
             cols_view_present = [col for col in cols_view if col in df_charts.columns]
             
