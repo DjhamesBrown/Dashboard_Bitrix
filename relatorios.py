@@ -103,7 +103,7 @@ def renderizar_aba_gestao():
         df_charts['Status_SLA'] = df_charts['Estourado'].map({True: 'Estourado 🚨', False: 'No Prazo ✅'})
         df_charts["Data Formatada"] = df_charts["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
 
-    st.info("💡 **Atenção (Drill-Down):** Para detalhar os dados nas tabelas abaixo, clique diretamente nas **barras** dos gráficos.")
+    st.info("💡 **Atenção (Drill-Down):** Interaja com os gráficos e tabelas abaixo clicando diretamente nas **barras ou nas linhas** para detalhar as informações.")
 
     # --- 2. ANÁLISE DE ESFORÇO (TOUCH TIME) ---
     st.subheader("⏱️ Análise de Esforço Operacional (Horas Trabalhadas)")
@@ -126,23 +126,51 @@ def renderizar_aba_gestao():
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             if "Esforco_Tarefas_h" in df_charts:
-                # ⚠️ NOVO: Botão de alternância (Top 15 x Todos)
-                opcao_visao_cli = st.radio("Quantidade de Clientes a exibir:", ["Top 15", "Todos"], horizontal=True)
+                # ⚠️ SISTEMA DE ALTERNÂNCIA (GRÁFICO VS TABELA INTERATIVA)
+                opcao_visao_cli = st.radio("Visão de Consumo:", ["Gráfico (Top 15)", "Tabela Auditável (Todos)"], horizontal=True)
                 
                 df_agrupado_cli = df_charts.groupby("Cliente")["Esforco_Tarefas_h"].sum().reset_index()
                 
-                if opcao_visao_cli == "Top 15":
+                if opcao_visao_cli == "Gráfico (Top 15)":
                     df_tempo_cli = df_agrupado_cli.nlargest(15, "Esforco_Tarefas_h")
-                    tit_graf = "Maiores Consumidores de Horas (Top 15)"
+                    df_tempo_cli["Tempo Texto"] = df_tempo_cli["Esforco_Tarefas_h"].apply(formatar_hhmmss)
+                    
+                    fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title="Maiores Consumidores de Horas (Top 15)", text='Tempo Texto')
+                    fig_t1.update_layout(yaxis_title="Volume de Horas (Escala Dec)")
+                    plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli")
+                
                 else:
-                    df_tempo_cli = df_agrupado_cli.sort_values(by="Esforco_Tarefas_h", ascending=False)
-                    tit_graf = "Maiores Consumidores de Horas (Todos)"
-                
-                df_tempo_cli["Tempo Texto"] = df_tempo_cli["Esforco_Tarefas_h"].apply(formatar_hhmmss)
-                
-                fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title=tit_graf, text='Tempo Texto')
-                fig_t1.update_layout(yaxis_title="Volume de Horas (Escala Dec)")
-                plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli")
+                    # Visão Tabela de Todos os Clientes com Evento de Clique
+                    st.markdown("**Matriz Completa de Clientes (Selecione uma linha para ver os chamados)**")
+                    
+                    df_tabela_cli = df_agrupado_cli.sort_values(by="Esforco_Tarefas_h", ascending=False).copy()
+                    df_tabela_cli["Tempo Faturável (Total)"] = df_tabela_cli["Esforco_Tarefas_h"].apply(formatar_hhmmss)
+                    df_show_tabela = df_tabela_cli[["Cliente", "Tempo Faturável (Total)"]]
+                    
+                    evento_tabela = st.dataframe(
+                        df_show_tabela, 
+                        use_container_width=True, 
+                        hide_index=True, 
+                        on_select="rerun", 
+                        selection_mode="single-row",
+                        key="tabela_cli_todos",
+                        height=350 # Trava a altura para alinhar com o gráfico ao lado
+                    )
+                    
+                    # Interceptador de Clique na Tabela
+                    if evento_tabela and "selection" in evento_tabela and "rows" in evento_tabela["selection"] and len(evento_tabela["selection"]["rows"]) > 0:
+                        indice_selecionado = evento_tabela["selection"]["rows"][0]
+                        cliente_selecionado = df_show_tabela.iloc[indice_selecionado]["Cliente"]
+                        
+                        st.success(f"🔎 **Auditoria:** Chamados do cliente **{cliente_selecionado}**.")
+                        df_filtro_cli = df_charts[df_charts["Cliente"] == cliente_selecionado].copy()
+                        
+                        cols_cli = ["ID", "Responsável", "Fase Nome", "Esforco_Formatado"]
+                        df_chamados_cli = df_filtro_cli[[c for c in cols_cli if c in df_filtro_cli.columns]].copy()
+                        if "Esforco_Formatado" in df_chamados_cli.columns:
+                            df_chamados_cli.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
+                            
+                        st.dataframe(df_chamados_cli, use_container_width=True, hide_index=True)
             
         with col_t2:
             if "Esforco_Tarefas_h" in df_charts:
