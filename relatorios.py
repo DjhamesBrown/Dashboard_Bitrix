@@ -9,14 +9,14 @@ def renderizar_aba_gestao():
     st.header("📊 Inteligência de Dados e Gestão (ITIL 4 - CSI)", 
               help="[Princípio ITIL: Continual Service Improvement] Este módulo transforma os dados transacionais do Bitrix24 em inteligência estratégica para tomada de decisão.")
     
-    # --- FUNÇÃO DE DRILL-DOWN OTIMIZADA ---
     def exibir_drilldown(selecao, df_base, coluna_filtro):
         if selecao and isinstance(selecao, dict) and "selection" in selecao:
             pontos = selecao["selection"].get("points", [])
             if pontos:
                 valores = []
                 for p in pontos:
-                    val = p.get("label") or p.get("x") or p.get("y")
+                    # Captura robusta independente do tipo de gráfico (x, y ou label)
+                    val = p.get("label") or p.get("y") or p.get("x")
                     if val is not None: valores.append(val)
                 
                 valores = list(set(valores))
@@ -24,18 +24,16 @@ def renderizar_aba_gestao():
                     df_filtrado = df_base[df_base[coluna_filtro].isin(valores)]
                     st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtrado)} chamado(s) localizado(s) para '{', '.join(map(str, valores))}'.")
                     
-                    # ⚠️ Inclusão do Motivo Fechamento e Formato HH:MM:SS
                     cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Motivo Fechamento", "Esforco_Formatado"]
                     df_show = df_filtrado[[c for c in cols if c in df_filtrado.columns]].copy()
                     
-                    # Renomeia a coluna visualmente para a tabela
                     if "Esforco_Formatado" in df_show.columns:
                         df_show.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
                         
                     st.dataframe(df_show, use_container_width=True, hide_index=True)
 
     def plot_interativo(fig, df_charts, coluna_filtro, key):
-        fig.update_layout(legend=dict(itemclick=False, itemdoubleclick=False))
+        # Legendas reativadas livremente
         try:
             selecao = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points", key=key)
             exibir_drilldown(selecao, df_charts, coluna_filtro)
@@ -48,8 +46,7 @@ def renderizar_aba_gestao():
     d_fim = st.sidebar.date_input("Data Fim", value=date.today(), format="DD/MM/YYYY")
     dias_periodo = max((d_fim - d_ini).days + 1, 1)
 
-    tipo_data_grafico = st.sidebar.radio("Referência de Busca:", ["Data de Abertura", "Data de Encerramento"], 
-                                         help="Define a constante temporal: Se os relatórios avaliarão chamados CRIADOS ou FINALIZADOS no período selecionado acima.")
+    tipo_data_grafico = st.sidebar.radio("Referência de Busca:", ["Data de Abertura", "Data de Encerramento"])
     col_data_graficos = "Data Abertura" if tipo_data_grafico == "Data de Abertura" else "Data Modificacao"
     
     equipe_suporte = ["Ana Beatriz", "Djhames Moraes", "Luciana Scabini", "Thaísa Castilho"]
@@ -64,9 +61,13 @@ def renderizar_aba_gestao():
 
     clientes_sel = st.sidebar.multiselect("Filtrar Clientes", options=sorted(df["Cliente"].unique()))
 
-    mask_base = df["Responsável"].isin(analistas_sel)
-    if clientes_sel: mask_base &= df["Cliente"].isin(clientes_sel)
-    df_base = df[mask_base].copy()
+    # Aplicação local da máscara de data (Resolve o Timezone Truncation)
+    mask_charts = (df[col_data_graficos].dt.date >= d_ini) & (df[col_data_graficos].dt.date <= d_fim)
+    df_base_temporal = df[mask_charts].copy()
+
+    mask_base = df_base_temporal["Responsável"].isin(analistas_sel)
+    if clientes_sel: mask_base &= df_base_temporal["Cliente"].isin(clientes_sel)
+    df_base = df_base_temporal[mask_base].copy()
 
     mask_abertos = (df_base["Data Abertura"].dt.date >= d_ini) & (df_base["Data Abertura"].dt.date <= d_fim)
     vol_periodo = len(df_base[mask_abertos])
@@ -90,14 +91,6 @@ def renderizar_aba_gestao():
 
     # --- 1. TOTALIZADORES ---
     st.subheader(f"📈 Indicadores do Período", help="Totalizadores quantitativos do setor. Respondem dinamicamente aos filtros aplicados na barra lateral esquerda.")
-    with st.expander("ℹ️ Dicionário de Métricas (Como são calculadas)"):
-        st.markdown("""
-        * **Volume Abertos:** Soma absoluta de tickets criados no período. Indica a demanda entrante.
-        * **Solucionados:** Tickets finalizados (WON). A porcentagem indica Eficiência (Solucionados / Abertos).
-        * **SLA Cumprido/Crítico:** Tickets resolvidos dentro vs fora da meta de tempo do contrato.
-        * **FCR (First Call Resolution):** Chamados onde a soma do *cronômetro das tarefas* foi inferior a 1 hora. Indica alta destreza técnica.
-        * **Vazão:** Média aritmética de entregas diárias da equipe.
-        """)
 
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1: st.metric("Volume Abertos", vol_periodo)
@@ -108,22 +101,15 @@ def renderizar_aba_gestao():
     with c6: st.metric("Vazão (Entregas/Dia)", f"{vazao_dia:.1f}", delta=f"{sol_periodo} total", delta_color="off")
     st.markdown("---")
 
-    mask_charts = (df_base[col_data_graficos].dt.date >= d_ini) & (df_base[col_data_graficos].dt.date <= d_fim)
-    df_charts = df_base[mask_charts].copy()
+    df_charts = df_base.copy()
     if not df_charts.empty:
         df_charts['Status_SLA'] = df_charts['Estourado'].map({True: 'Estourado 🚨', False: 'No Prazo ✅'})
         df_charts["Data Formatada"] = df_charts["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
 
-    st.info("💡 **Atenção (Drill-Down):** Para detalhar os dados nas tabelas, clique diretamente nas **barras ou nas fatias coloridas** dos gráficos. O sistema não captura cliques sobre os nomes da legenda lateral.")
+    st.info("💡 **Atenção (Drill-Down):** Para detalhar os dados nas tabelas abaixo, clique diretamente nas **barras** dos gráficos.")
 
     # --- 2. ANÁLISE DE ESFORÇO (TOUCH TIME) ---
-    st.subheader("⏱️ Análise de Esforço Operacional (Horas Trabalhadas)", help="[ITIL: Touch Time] Soma matemática do tempo exato em que a equipe deu o 'Play' no cronômetro das tarefas dentro dos chamados.")
-    
-    with st.expander("ℹ️ Como ler este relatório (Otimização de Custos)"):
-        st.markdown("""
-        **Para que serve:** Identificar os clientes que mais consomem as horas faturáveis da equipe e como a carga horária direta está dividida entre os analistas.
-        **Cálculo Matemático:** O sistema varre o banco de tarefas do Bitrix, extrai o campo `TIME_SPENT_IN_LOGS` **exclusivo da Equipe de Suporte** e soma os segundos, convertendo para o formato HH:MM:SS.
-        """)
+    st.subheader("⏱️ Análise de Esforço Operacional (Horas Trabalhadas)")
 
     def formatar_hhmmss(horas_dec):
         h = int(horas_dec)
@@ -144,7 +130,6 @@ def renderizar_aba_gestao():
         with col_t1:
             if "Esforco_Tarefas_h" in df_charts:
                 df_tempo_cli = df_charts.groupby("Cliente")["Esforco_Tarefas_h"].sum().reset_index().nlargest(10, "Esforco_Tarefas_h")
-                # Prepara o formato texto HH:MM:SS diretamente nas barras do gráfico
                 df_tempo_cli["Tempo Texto"] = df_tempo_cli["Esforco_Tarefas_h"].apply(formatar_hhmmss)
                 
                 fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title="Maiores Consumidores de Horas (Top 10 Clientes)", text='Tempo Texto')
@@ -153,21 +138,19 @@ def renderizar_aba_gestao():
             
         with col_t2:
             if "Esforco_Tarefas_h" in df_charts:
-                df_tempo_ana = df_charts.groupby("Responsável")["Esforco_Tarefas_h"].sum().reset_index()
-                fig_t2 = px.pie(df_tempo_ana, values='Esforco_Tarefas_h', names='Responsável', title="Alocação de Tempo por Analista", hole=0.3)
-                fig_t2.update_layout(legend=dict(itemclick=False, itemdoubleclick=False))
+                # ⚠️ SUBSTITUIÇÃO: Gráfico de Pizza instável substituído por Barras Horizontais precisas para Drill-Down
+                df_tempo_ana = df_charts.groupby("Responsável")["Esforco_Tarefas_h"].sum().reset_index().sort_values("Esforco_Tarefas_h", ascending=True)
+                df_tempo_ana["Tempo Texto"] = df_tempo_ana["Esforco_Tarefas_h"].apply(formatar_hhmmss)
+                
+                fig_t2 = px.bar(df_tempo_ana, y='Responsável', x='Esforco_Tarefas_h', orientation='h', 
+                                title="Alocação de Tempo por Analista", text='Tempo Texto', color='Responsável')
+                fig_t2.update_layout(xaxis_title="Volume de Horas", yaxis_title="", showlegend=False)
                 plot_interativo(fig_t2, df_charts, "Responsável", "graf_esforco_ana")
 
     st.markdown("---")
 
     # --- 3. CAUSA RAIZ (PARETO) ---
-    st.subheader("🔍 Estocástica de Causa-Raiz (Diagrama de Pareto)", help="[ITIL: Problem Management] Visualização hierárquica dos maiores motivos de acionamento do suporte.")
-    
-    with st.expander("ℹ️ Como utilizar esta análise (Regra 80/20)"):
-        st.markdown("""
-        **Princípio de Pareto:** Estatisticamente, $80\%$ dos problemas são gerados por $20\%$ das causas. 
-        **Ação Gerencial:** Ao atacar e resolver estruturalmente os problemas representados pelas maiores barras, o volume total de chamados na empresa despencará.
-        """)
+    st.subheader("🔍 Estocástica de Causa-Raiz (Diagrama de Pareto)")
 
     l3_g1, l3_g2 = st.columns(2)
 
@@ -197,13 +180,7 @@ def renderizar_aba_gestao():
     st.markdown("---")
 
     # --- 4. VISÃO MACRO E QUALIDADE SLA ---
-    st.subheader("🌐 Visão Macroeconômica e Produtividade", help="Cruza o volume cronológico de entrada com a qualidade de entrega contratual de cada membro da equipe.")
-    
-    with st.expander("ℹ️ Leitura Gerencial (Tendência e Qualidade)"):
-        st.markdown("""
-        * **Evolução de Demandas:** Mostra picos e vales do volume de trabalho dia a dia. Útil para prever escalas de plantão e descobrir sazonalidades.
-        * **Qualidade de SLA:** Uma análise puramente técnica das infrações de prazo por funcionário. Ideal para basear feedbacks.
-        """)
+    st.subheader("🌐 Visão Macroeconômica e Produtividade")
 
     l1_g1, l1_g2 = st.columns(2)
     with l1_g1:
@@ -220,7 +197,7 @@ def renderizar_aba_gestao():
             df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset_index(name='Total')
             cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
             fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla)
-            fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10), legend=dict(itemclick=False, itemdoubleclick=False))
+            fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
             plot_interativo(fig_sla, df_charts, "Responsável", "graf_sla_qualidade")
 
     # --- RELATÓRIO DETALHADO ---
