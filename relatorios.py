@@ -9,25 +9,27 @@ def renderizar_aba_gestao():
     st.header("📊 Inteligência de Dados e Gestão (ITIL 4 - CSI)", 
               help="[Princípio ITIL: Continual Service Improvement] Este módulo transforma os dados transacionais do Bitrix24 em inteligência estratégica para tomada de decisão.")
     
-    # ⚠️ NOVO: Inclusão do parâmetro 'eixo_alvo' para blindar a captura do clique
     def exibir_drilldown(selecao, df_base, coluna_filtro, eixo_alvo):
         if selecao and isinstance(selecao, dict) and "selection" in selecao:
             pontos = selecao["selection"].get("points", [])
             if pontos:
                 valores = []
                 for p in pontos:
-                    # Captura exatamente o eixo instruído pelo programador
-                    val = p.get(eixo_alvo)
-                    if val is None: # Fallback de segurança
-                        val = p.get("label") or p.get("x") or p.get("y")
+                    # Captura de chaves compostas (vetor bidimensional) ou eixos padrões
+                    if eixo_alvo == "customdata" and "customdata" in p and p["customdata"]:
+                        val = p["customdata"][0]
+                    else:
+                        val = p.get(eixo_alvo)
+                        if val is None:
+                            val = p.get("label") or p.get("x") or p.get("y")
                     if val is not None: valores.append(val)
                 
                 valores = list(set(valores))
                 if valores:
                     df_filtrado = df_base[df_base[coluna_filtro].isin(valores)]
-                    st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtrado)} chamado(s) localizado(s) para '{', '.join(map(str, valores))}'.")
+                    st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtrado)} chamado(s) localizado(s) na intersecção selecionada.")
                     
-                    cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Motivo Fechamento", "Esforco_Formatado", "Data Formatada"]
+                    cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Motivo Fechamento", "Status_SLA", "Esforco_Formatado", "Data Formatada"]
                     df_show = df_filtrado[[c for c in cols if c in df_filtrado.columns]].copy()
                     
                     if "Esforco_Formatado" in df_show.columns:
@@ -94,12 +96,12 @@ def renderizar_aba_gestao():
     st.subheader(f"📈 Indicadores do Período", help="Totalizadores quantitativos do setor. Respondem dinamicamente aos filtros aplicados na barra lateral esquerda.")
 
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    with c1: st.metric("Volume Abertos", vol_periodo)
-    with c2: st.metric("Solucionados", sol_periodo, delta=f"{taxa_eficiencia:.1f}% Eficiência", delta_color="normal")
-    with c3: st.metric("✅ SLA Cumprido", sla_cumprido, delta=f"{taxa_sla_cumprido:.1f}% sucesso", delta_color="normal")
-    with c4: st.metric("🚨 SLA Crítico", sla_critico, delta=f"{taxa_sla_critico:.1f}% estouraram", delta_color="inverse")
-    with c5: st.metric("⚡ FCR (1º Contato)", fcr_count, delta=f"{taxa_fcr:.1f}% ágeis", delta_color="normal")
-    with c6: st.metric("Vazão (Entregas/Dia)", f"{vazao_dia:.1f}", delta=f"{sol_periodo} total", delta_color="off")
+    with c1: st.metric("Volume Abertos", vol_periodo, help="Total absoluto de chamados ABERTOS no período filtrado.")
+    with c2: st.metric("Solucionados", sol_periodo, delta=f"{taxa_eficiencia:.1f}% Eficiência", delta_color="normal", help="Volume de tickets finalizados. A eficiência cruza resoluções x aberturas.")
+    with c3: st.metric("✅ SLA Cumprido", sla_cumprido, delta=f"{taxa_sla_cumprido:.1f}% sucesso", delta_color="normal", help="Chamados entregues dentro da meta matemática estabelecida.")
+    with c4: st.metric("🚨 SLA Crítico", sla_critico, delta=f"{taxa_sla_critico:.1f}% estouraram", delta_color="inverse", help="Chamados que ultrapassaram o tempo limite (Estourados).")
+    with c5: st.metric("⚡ FCR (1º Contato)", fcr_count, delta=f"{taxa_fcr:.1f}% ágeis", delta_color="normal", help="First Call Resolution: Chamados fechados em menos de 1 hora de esforço direto.")
+    with c6: st.metric("Vazão (Entregas/Dia)", f"{vazao_dia:.1f}", delta=f"{sol_periodo} total", delta_color="off", help="Média de chamados solucionados por dia de operação.")
     st.markdown("---")
 
     df_charts = df_base.copy()
@@ -107,11 +109,22 @@ def renderizar_aba_gestao():
         df_charts['Status_SLA'] = df_charts['Estourado'].map({True: 'Estourado 🚨', False: 'No Prazo ✅'})
         df_charts["Data Formatada"] = df_charts["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
         df_charts['Data_Ref_Str'] = df_charts[col_data_graficos].dt.strftime('%Y-%m-%d')
+        # ⚠️ CRIAÇÃO DA CHAVE COMPOSTA PARA O SLA (Intersecção)
+        df_charts['Chave_SLA'] = df_charts['Responsável'].astype(str) + "|" + df_charts['Status_SLA'].astype(str)
 
     st.info("💡 **Atenção (Drill-Down):** Interaja com os gráficos e tabelas abaixo clicando diretamente nos **pontos, barras ou linhas** para detalhar as informações.")
 
     # --- 2. ANÁLISE DE ESFORÇO (TOUCH TIME) ---
     st.subheader("⏱️ Análise de Esforço Operacional (Horas Trabalhadas)")
+    
+    with st.expander("ℹ️ Como ler este relatório (Otimização de Custos)"):
+        st.markdown("""
+        **Para que serve:** Identificar os clientes que mais consomem as horas faturáveis da equipe e como a carga horária direta está dividida entre os analistas.
+        
+        **Cálculo Matemático:** O sistema varre o banco de tarefas do Bitrix, extrai o campo `TIME_SPENT_IN_LOGS` e soma os segundos, convertendo para horas fracionadas. **Não** contabiliza o tempo de espera do ticket, apenas o trabalho braçal direto.
+        
+        *Dica da Gestão:* Renegociar contratos com os clientes nas primeiras barras à esquerda.
+        """)
 
     def formatar_hhmmss(horas_dec):
         h = int(horas_dec)
@@ -141,7 +154,7 @@ def renderizar_aba_gestao():
                     
                     fig_t1 = px.bar(df_tempo_cli, x='Cliente', y='Esforco_Tarefas_h', title="Maiores Consumidores de Horas (Top 15)", text='Tempo Texto')
                     fig_t1.update_layout(yaxis_title="Volume de Horas (Escala Dec)")
-                    plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli", eixo_alvo="x") # Eixo X
+                    plot_interativo(fig_t1, df_charts, "Cliente", "graf_esforco_cli", eixo_alvo="x")
                 
                 else:
                     st.markdown("**Matriz Completa de Clientes (Selecione uma linha)**")
@@ -164,8 +177,8 @@ def renderizar_aba_gestao():
                         indice_selecionado = evento_tabela["selection"]["rows"][0]
                         cliente_selecionado = df_show_tabela.iloc[indice_selecionado]["Cliente"]
                         
-                        st.success(f"🔎 **Auditoria:** Chamados do cliente **{cliente_selecionado}**.")
                         df_filtro_cli = df_charts[df_charts["Cliente"] == cliente_selecionado].copy()
+                        st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtro_cli)} chamado(s) localizado(s) para '{cliente_selecionado}'.")
                         
                         cols_cli = ["ID", "Responsável", "Fase Nome", "Esforco_Formatado", "Data Formatada"]
                         df_chamados_cli = df_filtro_cli[[c for c in cols_cli if c in df_filtro_cli.columns]].copy()
@@ -182,12 +195,21 @@ def renderizar_aba_gestao():
                 fig_t2 = px.bar(df_tempo_ana, y='Responsável', x='Esforco_Tarefas_h', orientation='h', 
                                 title="Alocação de Tempo por Analista", text='Tempo Texto', color='Responsável')
                 fig_t2.update_layout(xaxis_title="Volume de Horas", yaxis_title="", showlegend=False)
-                plot_interativo(fig_t2, df_charts, "Responsável", "graf_esforco_ana", eixo_alvo="y") # Eixo Y
+                plot_interativo(fig_t2, df_charts, "Responsável", "graf_esforco_ana", eixo_alvo="y")
 
     st.markdown("---")
 
     # --- 3. CAUSA RAIZ (PARETO) ---
-    st.subheader("🔍 Estocástica de Causa-Raiz (Motivos de Abertura e Fechamento)")
+    st.subheader("🔍 Estocástica de Causa-Raiz (Diagrama de Pareto)")
+
+    with st.expander("ℹ️ Como utilizar esta análise (Regra 80/20)"):
+        st.markdown("""
+        **Para que serve:** Aplicação do Princípio de Pareto para identificar as causas-raiz vitais que geram o maior volume de chamados na operação de suporte.
+        
+        **Cálculo Matemático:** O sistema agrupa a frequência absoluta dos campos 'Motivo de Abertura' e 'Motivo de Fechamento', ordenando de forma decrescente para isolar os maiores ofensores.
+        
+        *Dica da Gestão:* Focar treinamentos e resoluções sistêmicas nos 3 primeiros motivos da esquerda reduzirá drasticamente o volume de chamados futuros.
+        """)
 
     l3_g1, l3_g2 = st.columns(2)
 
@@ -206,7 +228,7 @@ def renderizar_aba_gestao():
                 df_abertura_top = df_abertura_full.head(10)
                 fig_abertura = px.bar(df_abertura_top, y='Motivo Abertura', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Blues')
                 fig_abertura.update_layout(xaxis_title="Σ Volume", yaxis_title="")
-                plot_interativo(fig_abertura, df_charts, "Motivo Abertura", "graf_motivo_abertura", eixo_alvo="y") # Eixo Y
+                plot_interativo(fig_abertura, df_charts, "Motivo Abertura", "graf_motivo_abertura", eixo_alvo="y")
             else:
                 st.markdown("**Lista Completa de Motivos (Selecione uma linha)**")
                 evento_abert = st.dataframe(
@@ -223,8 +245,8 @@ def renderizar_aba_gestao():
                     idx_abert = evento_abert["selection"]["rows"][0]
                     motivo_abert_sel = df_abertura_full.iloc[idx_abert]["Motivo Abertura"]
                     
-                    st.success(f"🔎 **Auditoria:** Chamados abertos por **{motivo_abert_sel}**.")
                     df_filtro_abert = df_charts[df_charts["Motivo Abertura"] == motivo_abert_sel].copy()
+                    st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtro_abert)} chamados abertos por '{motivo_abert_sel}'.")
                     
                     cols_abert = ["ID", "Cliente", "Responsável", "Esforco_Formatado", "Data Formatada"]
                     df_show_abert = df_filtro_abert[[c for c in cols_abert if c in df_filtro_abert.columns]].copy()
@@ -245,7 +267,7 @@ def renderizar_aba_gestao():
                     df_fechamento_top = df_fechamento_full.head(10)
                     fig_fechamento = px.bar(df_fechamento_top, y='Motivo Fechamento', x='Frequência Absoluta', orientation='h', text_auto='.0f', color='Frequência Absoluta', color_continuous_scale='Greens')
                     fig_fechamento.update_layout(xaxis_title="Σ Volume", yaxis_title="")
-                    plot_interativo(fig_fechamento, df_charts, "Motivo Fechamento", "graf_motivo_fechamento", eixo_alvo="y") # Eixo Y
+                    plot_interativo(fig_fechamento, df_charts, "Motivo Fechamento", "graf_motivo_fechamento", eixo_alvo="y")
                 else:
                     st.markdown("**Lista Completa de Motivos (Selecione uma linha)**")
                     evento_fecham = st.dataframe(
@@ -262,8 +284,8 @@ def renderizar_aba_gestao():
                         idx_fecham = evento_fecham["selection"]["rows"][0]
                         motivo_fecham_sel = df_fechamento_full.iloc[idx_fecham]["Motivo Fechamento"]
                         
-                        st.success(f"🔎 **Auditoria:** Chamados solucionados por **{motivo_fecham_sel}**.")
                         df_filtro_fecham = df_solucionados[df_solucionados["Motivo Fechamento"] == motivo_fecham_sel].copy()
+                        st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtro_fecham)} chamados solucionados por '{motivo_fecham_sel}'.")
                         
                         cols_fecham = ["ID", "Cliente", "Responsável", "Esforco_Formatado", "Data Formatada"]
                         df_show_fecham = df_filtro_fecham[[c for c in cols_fecham if c in df_filtro_fecham.columns]].copy()
@@ -276,6 +298,15 @@ def renderizar_aba_gestao():
 
     # --- 4. VISÃO MACRO E QUALIDADE SLA ---
     st.subheader("🌐 Visão Macroeconômica e Produtividade")
+    
+    with st.expander("ℹ️ Como ler a Visão Macro e Qualidade"):
+        st.markdown("""
+        **Para que serve:** Monitorar a estabilidade da entrada de demandas e medir a conformidade das entregas com os Acordos de Nível de Serviço (SLA).
+        
+        **Cálculo Matemático:** A Evolução Diária interpola os dias sem chamados com o valor estático `0` para manter a integridade do eixo temporal de data. O SLA cruza o tempo decorrido desde a abertura contra a meta da fase atual configurada no código.
+        
+        *Dica da Gestão:* Picos acentuados no gráfico de linhas indicam anomalias no sistema que devem ser investigados imediatamente.
+        """)
 
     l1_g1, l1_g2 = st.columns(2)
     with l1_g1:
@@ -296,17 +327,24 @@ def renderizar_aba_gestao():
             fig_trend.update_traces(textposition="top center")
             fig_trend.update_layout(margin=dict(t=10))
             
-            # ⚠️ TRAVA MATEMÁTICA: Exige expressamente o eixo X (Data) ao clicar no ponto
             plot_interativo(fig_trend, df_charts, "Data_Ref_Str", "graf_evolucao_diaria", eixo_alvo="x") 
 
     with l1_g2:
         st.markdown("**Qualidade de Entrega (SLA por Analista)**")
         if not df_charts.empty:
             df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset_index(name='Total')
+            
+            # ⚠️ VÍNCULO DA CHAVE COMPOSTA: Prepara a variável analítica que intercepta (Analista + Status)
+            df_sla_ana['Chave_SLA'] = df_sla_ana['Responsável'].astype(str) + "|" + df_sla_ana['Status_SLA'].astype(str)
+            
             cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
-            fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla)
+            
+            # custom_data injeta a chave composta no clique do usuário
+            fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla, custom_data=['Chave_SLA'])
             fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
-            plot_interativo(fig_sla, df_charts, "Responsável", "graf_sla_qualidade", eixo_alvo="x") # Eixo X
+            
+            # eixo_alvo="customdata" diz ao Streamlit para ler a chave composta em vez do eixo X ou Y simples
+            plot_interativo(fig_sla, df_charts, "Chave_SLA", "graf_sla_qualidade", eixo_alvo="customdata")
 
     # --- RELATÓRIO DETALHADO ---
     with st.expander("📄 Visualizar Matriz Bruta (Auditoria)"):
