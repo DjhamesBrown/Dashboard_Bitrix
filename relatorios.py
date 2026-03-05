@@ -109,12 +109,75 @@ def renderizar_aba_gestao():
         df_charts['Status_SLA'] = df_charts['Estourado'].map({True: 'Estourado 🚨', False: 'No Prazo ✅'})
         df_charts["Data Formatada"] = df_charts["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
         df_charts['Data_Ref_Str'] = df_charts[col_data_graficos].dt.strftime('%Y-%m-%d')
-        # ⚠️ CRIAÇÃO DA CHAVE COMPOSTA PARA O SLA (Intersecção)
         df_charts['Chave_SLA'] = df_charts['Responsável'].astype(str) + "|" + df_charts['Status_SLA'].astype(str)
 
     st.info("💡 **Atenção (Drill-Down):** Interaja com os gráficos e tabelas abaixo clicando diretamente nos **pontos, barras ou linhas** para detalhar as informações.")
 
-    # --- 2. ANÁLISE DE ESFORÇO (TOUCH TIME) ---
+    # --- 2. ANÁLISE DE VOLUME (QUANTITATIVO) ---
+    st.subheader("📊 Análise Quantitativa (Volume de Demanda por Cliente)")
+    
+    with st.expander("ℹ️ Como ler este relatório (Volume Absoluto)"):
+        st.markdown("""
+        **Para que serve:** Identificar a probabilidade de um cliente gerar demandas para a equipe de suporte. Diferente do relatório de esforço (horas), este foca na quantidade bruta de tickets.
+        
+        **Cálculo Matemático:** O sistema realiza uma contagem de frequência absoluta dos chamados (linhas de registro) agrupando por cliente dentro da janela estocástica selecionada.
+        
+        *Dica da Gestão:* Muitos chamados curtos geram um alto custo oculto de "Context Switching" (Troca de Contexto) para os analistas, minando o foco da equipe.
+        """)
+
+    if not df_charts.empty:
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            opcao_visao_vol = st.radio("Visão de Frequência Absoluta:", ["Gráfico (Top 15)", "Tabela Auditável (Todos)"], horizontal=True, key="rad_vol")
+            
+            df_vol_cli = df_charts['Cliente'].value_counts().reset_index()
+            df_vol_cli.columns = ['Cliente', 'Total de Chamados']
+            
+            if opcao_visao_vol == "Gráfico (Top 15)":
+                df_vol_cli_top = df_vol_cli.head(15)
+                fig_v1 = px.bar(df_vol_cli_top, x='Cliente', y='Total de Chamados', title="Maiores Geradores de Demanda (Top 15)", text_auto='.0f')
+                fig_v1.update_layout(yaxis_title="Quantidade (Unidades)")
+                plot_interativo(fig_v1, df_charts, "Cliente", "graf_vol_cli", eixo_alvo="x")
+            
+            else:
+                st.markdown("**Matriz Completa de Clientes (Selecione uma linha)**")
+                evento_tabela_vol = st.dataframe(
+                    df_vol_cli, 
+                    use_container_width=True, 
+                    hide_index=True, 
+                    on_select="rerun", 
+                    selection_mode="single-row",
+                    key="tabela_vol_cli_todos",
+                    height=350 
+                )
+                
+                if evento_tabela_vol and "selection" in evento_tabela_vol and "rows" in evento_tabela_vol["selection"] and len(evento_tabela_vol["selection"]["rows"]) > 0:
+                    indice_sel = evento_tabela_vol["selection"]["rows"][0]
+                    cliente_sel = df_vol_cli.iloc[indice_sel]["Cliente"]
+                    
+                    df_filtro_vol = df_charts[df_charts["Cliente"] == cliente_sel].copy()
+                    st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtro_vol)} chamado(s) localizado(s) para '{cliente_sel}'.")
+                    
+                    cols_cli = ["ID", "Responsável", "Fase Nome", "Motivo Abertura", "Esforco_Formatado", "Data Formatada"]
+                    df_chamados_vol = df_filtro_vol[[c for c in cols_cli if c in df_filtro_vol.columns]].copy()
+                    if "Esforco_Formatado" in df_chamados_vol.columns:
+                        df_chamados_vol.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
+
+                    st.dataframe(df_chamados_vol, use_container_width=True, hide_index=True)
+
+        with col_v2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            df_vol_ana = df_charts['Responsável'].value_counts().reset_index().sort_values("count", ascending=True)
+            df_vol_ana.columns = ['Responsável', 'Total de Chamados']
+            
+            fig_v2 = px.bar(df_vol_ana, y='Responsável', x='Total de Chamados', orientation='h', 
+                            title="Distribuição de Carga de Tickets (por Analista)", text_auto='.0f', color='Responsável')
+            fig_v2.update_layout(xaxis_title="Quantidade (Unidades)", yaxis_title="", showlegend=False)
+            plot_interativo(fig_v2, df_charts, "Responsável", "graf_vol_ana", eixo_alvo="y")
+
+    st.markdown("---")
+
+    # --- 3. ANÁLISE DE ESFORÇO (TOUCH TIME) ---
     st.subheader("⏱️ Análise de Esforço Operacional (Horas Trabalhadas)")
     
     with st.expander("ℹ️ Como ler este relatório (Otimização de Custos)"):
@@ -169,7 +232,7 @@ def renderizar_aba_gestao():
                         hide_index=True, 
                         on_select="rerun", 
                         selection_mode="single-row",
-                        key="tabela_cli_todos",
+                        key="tabela_cli_horas_todos",
                         height=350 
                     )
                     
@@ -199,7 +262,7 @@ def renderizar_aba_gestao():
 
     st.markdown("---")
 
-    # --- 3. CAUSA RAIZ (PARETO) ---
+    # --- 4. CAUSA RAIZ (PARETO) ---
     st.subheader("🔍 Estocástica de Causa-Raiz (Diagrama de Pareto)")
 
     with st.expander("ℹ️ Como utilizar esta análise (Regra 80/20)"):
@@ -296,7 +359,7 @@ def renderizar_aba_gestao():
 
     st.markdown("---")
 
-    # --- 4. VISÃO MACRO E QUALIDADE SLA ---
+    # --- 5. VISÃO MACRO E QUALIDADE SLA ---
     st.subheader("🌐 Visão Macroeconômica e Produtividade")
     
     with st.expander("ℹ️ Como ler a Visão Macro e Qualidade"):
@@ -305,7 +368,7 @@ def renderizar_aba_gestao():
         
         **Cálculo Matemático:** A Evolução Diária interpola os dias sem chamados com o valor estático `0` para manter a integridade do eixo temporal de data. O SLA cruza o tempo decorrido desde a abertura contra a meta da fase atual configurada no código.
         
-        *Dica da Gestão:* Picos acentuados no gráfico de linhas indicam anomalias no sistema que devem ser investigados imediatamente.
+        *Dica da Gestão:* Picos acentuados no gráfico de linhas indicam anomalias no sistema que devem ser investigadas imediatamente.
         """)
 
     l1_g1, l1_g2 = st.columns(2)
@@ -334,16 +397,13 @@ def renderizar_aba_gestao():
         if not df_charts.empty:
             df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset_index(name='Total')
             
-            # ⚠️ VÍNCULO DA CHAVE COMPOSTA: Prepara a variável analítica que intercepta (Analista + Status)
             df_sla_ana['Chave_SLA'] = df_sla_ana['Responsável'].astype(str) + "|" + df_sla_ana['Status_SLA'].astype(str)
             
             cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
             
-            # custom_data injeta a chave composta no clique do usuário
             fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla, custom_data=['Chave_SLA'])
             fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
             
-            # eixo_alvo="customdata" diz ao Streamlit para ler a chave composta em vez do eixo X ou Y simples
             plot_interativo(fig_sla, df_charts, "Chave_SLA", "graf_sla_qualidade", eixo_alvo="customdata")
 
     # --- RELATÓRIO DETALHADO ---
