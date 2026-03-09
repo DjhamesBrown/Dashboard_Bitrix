@@ -108,7 +108,7 @@ else:
             elif f == 'ENTRADAS': df_view, tit = df[df["Data Abertura"].dt.date == hoje].copy(), "Entradas Criadas Hoje"
             elif f == 'SOLUCIONADOS': 
                 df_view, tit = df_solucionados_hoje.copy(), "Solucionados Hoje"
-                df_view["Encerramento"] = df_view["Data Encerramento"].dt.strftime('%d/%m %H:%M')
+                df_view["Encerramento"] = df_view["Data Movimentacao"].dt.strftime('%d/%m %H:%M')
                 cols_view = ["ID", "Fase Nome", "Cliente", "Título Completo", "Responsável", "Encerramento", "Último Follow-up"]
             elif f == 'FILA_ATIVA': df_view, tit = df_abertos.copy(), "Fila Ativa de Trabalho"
             elif f == 'PAUSA': df_view, tit = df_pausa.copy(), "Chamados em Pausa"
@@ -132,4 +132,5 @@ else:
 
     elif aba == "📊 Gestão": 
         relatorios.renderizar_aba_gestao()
+
 
