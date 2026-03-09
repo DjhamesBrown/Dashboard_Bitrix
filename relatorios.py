@@ -28,7 +28,6 @@ def renderizar_aba_gestao():
                     df_filtrado = df_base[df_base[coluna_filtro].isin(valores)]
                     st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtrado)} chamado(s) localizado(s) na intersecção selecionada.")
                     
-                    # ⚠️ INCLUSÃO DO TEMPO TRABALHADO NO DRILL DOWN GLOBAL
                     cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Status_SLA", "Esforco_Formatado", "Data Formatada", "Último Follow-up"]
                     df_show = df_filtrado[[c for c in cols if c in df_filtrado.columns]].copy()
                     
@@ -71,6 +70,9 @@ def renderizar_aba_gestao():
 
     clientes_sel = st.sidebar.multiselect("Filtrar Clientes", options=sorted(df["Cliente"].unique()))
 
+    # ⚠️ BLINDAGEM 1: Força formato Data antes de usar .dt
+    df[col_data_graficos] = pd.to_datetime(df[col_data_graficos], errors='coerce')
+    
     mask_charts = (df[col_data_graficos].dt.date >= d_ini) & (df[col_data_graficos].dt.date <= d_fim)
     df_base_temporal = df[mask_charts].copy()
 
@@ -78,10 +80,15 @@ def renderizar_aba_gestao():
     if clientes_sel: mask_base &= df_base_temporal["Cliente"].isin(clientes_sel)
     df_base = df_base_temporal[mask_base].copy()
 
+    # ⚠️ BLINDAGEM 2: Força formato Data na Abertura
+    df_base["Data Abertura"] = pd.to_datetime(df_base["Data Abertura"], errors='coerce')
     mask_abertos = (df_base["Data Abertura"].dt.date >= d_ini) & (df_base["Data Abertura"].dt.date <= d_fim)
     vol_periodo = len(df_base[mask_abertos])
 
     col_fechamento_kpi = "Data Movimentacao" if "Data Movimentacao" in df_base.columns else "Data Modificacao"
+    
+    # ⚠️ BLINDAGEM 3: Força formato Data no Encerramento/Movimentação (AQUI OCORRIA O SEU ERRO)
+    df_base[col_fechamento_kpi] = pd.to_datetime(df_base[col_fechamento_kpi], errors='coerce')
     mask_fechados = (df_base[col_fechamento_kpi].dt.date >= d_ini) & (df_base[col_fechamento_kpi].dt.date <= d_fim) & (df_base["Status"] == "Solucionado")
     sol_periodo = len(df_base[mask_fechados])
 
@@ -150,7 +157,6 @@ def renderizar_aba_gestao():
                     df_filtro_vol = df_charts[df_charts["Cliente"] == cliente_sel].copy()
                     st.success(f"🔎 **Auditoria:** {len(df_filtro_vol)} chamado(s) localizado(s) para '{cliente_sel}'.")
                     
-                    # ⚠️ INCLUSÃO DO ESFORÇO NO DRILL DOWN DA TABELA DE VOLUME
                     cols_cli = ["ID", "Responsável", "Fase Nome", "Motivo Abertura", "Esforco_Formatado", "Data Formatada"]
                     df_chamados_vol = df_filtro_vol[[c for c in cols_cli if c in df_filtro_vol.columns]].copy()
                     if "Esforco_Formatado" in df_chamados_vol.columns:
@@ -211,7 +217,6 @@ def renderizar_aba_gestao():
                         df_filtro_cli = df_charts[df_charts["Cliente"] == cliente_selecionado].copy()
                         st.success(f"🔎 **Auditoria:** {len(df_filtro_cli)} chamado(s) localizado(s) para '{cliente_selecionado}'.")
                         
-                        # ⚠️ INCLUSÃO DO TEMPO TRABALHADO NO DRILL DOWN DE ESFORÇO
                         cols_cli = ["ID", "Responsável", "Fase Nome", "Esforco_Formatado", "Data Formatada", "Último Follow-up"]
                         df_chamados_cli = df_filtro_cli[[c for c in cols_cli if c in df_filtro_cli.columns]].copy()
                         if "Esforco_Formatado" in df_chamados_cli.columns:
@@ -229,7 +234,7 @@ def renderizar_aba_gestao():
 
     st.markdown("---")
 
-    # --- 4. CAUSA RAIZ E 5. VISÃO MACRO (Sem alterações visuais drásticas, lógicas preservadas) ---
+    # --- 4. CAUSA RAIZ ---
     st.subheader("🔍 Estocástica de Causa-Raiz (Diagrama de Pareto)")
     l3_g1, l3_g2 = st.columns(2)
     def gerar_dados_pareto(df_p, coluna):
@@ -296,17 +301,21 @@ def renderizar_aba_gestao():
     
     if not df_charts.empty:
         col_mov = "Data Movimentacao" if "Data Movimentacao" in df_charts.columns else "Data Modificacao"
+        
+        # ⚠️ BLINDAGEM 4: Forçando formatação de data para o comparativo de reabertos
+        df_charts["Data Abertura"] = pd.to_datetime(df_charts["Data Abertura"], errors='coerce')
+        df_charts[col_mov] = pd.to_datetime(df_charts[col_mov], errors='coerce')
+        
         df_reabertos = df_charts[df_charts["Data Abertura"].dt.date < df_charts[col_mov].dt.date].copy()
         
         if not df_reabertos.empty:
             df_reabertos.sort_values(by=col_mov, ascending=False, inplace=True)
             
-            # ⚠️ INCLUSÃO DAS DATAS DE ABERTURA E ENCERRAMENTO (Conforme solicitado)
             df_reabertos["Abertura"] = df_reabertos["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
             df_reabertos["Movimentação"] = df_reabertos[col_mov].dt.strftime('%d/%m/%Y %H:%M')
             
-            # Checa o encerramento, se for nulo, indica que está Em Aberto
             col_enc = "Data Encerramento" if "Data Encerramento" in df_charts.columns else col_mov
+            df_charts[col_enc] = pd.to_datetime(df_charts[col_enc], errors='coerce')
             df_reabertos["Encerramento"] = df_reabertos[col_enc].dt.strftime('%d/%m/%Y %H:%M').fillna("Em Aberto")
 
             st.metric(label="Volume de Retrabalho no Período", value=len(df_reabertos), help="Tickets iniciados no passado, mas que consumiram tempo/atenção no período filtrado.")
