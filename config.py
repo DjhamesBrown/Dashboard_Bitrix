@@ -1,16 +1,13 @@
 # config.py
 import streamlit as st
 
-# 1. SEGURANÇA E CONEXÃO
 WEBHOOK_URL = st.secrets["BITRIX_WEBHOOK_URL"]
 
-# Matriz de Controle de Acesso (RBAC) - Defina no secrets.toml
 CREDENCIAIS = {
     "diretoria": {"user": st.secrets.get("DIR_USER", "Mcrb"), "pass": st.secrets.get("DIR_PASS", "Mc@2026#$"), "role": "gestor"},
     "suporte": {"user": st.secrets.get("SUP_USER", "999"), "pass": st.secrets.get("SUP_PASS", "2937"), "role": "operador"}
 }
 
-# 2. MAPEAMENTO DA EQUIPE
 EQUIPE = {
     "815": "Djhames Moraes", 
     "249": "Luciana Scabini",
@@ -20,7 +17,6 @@ EQUIPE = {
     "20": "Saulo Bevilacqua"
 }
 
-# 3. MAPEAMENTO DE FASES E STATUS
 NOMES_FASES = {
     "C8:NEW": "Novo 🆕", 
     "C8:UC_OKYBJK": "Triagem 📥",
@@ -37,15 +33,16 @@ FASES_ATIVAS = [
     "C8:UC_3RMJ6E", "C8:UC_LQG67P", "C8:UC_N5RGUL"
 ]
 
-# 4. MAPEAMENTO DE CAMPOS DA API DO BITRIX24 (Com Vetores Confirmados)
+# ⚠️ ADICIONADO MOVED_TIME E CLOSEDATE
 CAMPOS_BITRIX = {
     "ID": "ID", 
     "TITLE": "Título Completo", 
     "ASSIGNED_BY_ID": "ID_Resp",
     "STAGE_ID": "Fase_Cod", 
     "DATE_CREATE": "Data Abertura",
-    "DATE_MODIFY": "Data Modificacao", 
-    "UF_CRM_1616007015366": "Data Encerramento", # ⚠️ CORREÇÃO: Forçando o campo real de Conclusão!
+    "DATE_MODIFY": "Data Modificacao",
+    "MOVED_TIME": "Data Movimentacao", 
+    "CLOSEDATE": "Data Encerramento", 
     "UF_CRM_1616006980001": "Último Follow-up",
     "UF_CRM_1685489465": "Motivo Abertura",
     "UF_CRM_1636030396": "Motivo Fechamento"
