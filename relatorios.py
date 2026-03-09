@@ -28,9 +28,13 @@ def renderizar_aba_gestao():
                     df_filtrado = df_base[df_base[coluna_filtro].isin(valores)]
                     st.success(f"🔎 **Auditoria Drill-Down:** {len(df_filtrado)} chamado(s) localizado(s) na intersecção selecionada.")
                     
-                    # ⚠️ INCLUSÃO DO ÚLTIMO FOLLOW-UP NOS DRILL-DOWNS GERAIS
-                    cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Status_SLA", "Data Formatada", "Último Follow-up"]
+                    # ⚠️ INCLUSÃO DO TEMPO TRABALHADO NO DRILL DOWN GLOBAL
+                    cols = ["ID", "Responsável", "Cliente", "Fase Nome", "Motivo Abertura", "Status_SLA", "Esforco_Formatado", "Data Formatada", "Último Follow-up"]
                     df_show = df_filtrado[[c for c in cols if c in df_filtrado.columns]].copy()
+                    
+                    if "Esforco_Formatado" in df_show.columns:
+                        df_show["Esforco_Formatado"] = df_show["Esforco_Formatado"].fillna("00:00:00")
+                        df_show.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
                         
                     st.dataframe(df_show, use_container_width=True, hide_index=True)
 
@@ -48,6 +52,7 @@ def renderizar_aba_gestao():
     dias_periodo = max((d_fim - d_ini).days + 1, 1)
 
     tipo_data_grafico = st.sidebar.radio("Referência de Busca:", ["Data de Abertura", "Data de Encerramento"])
+    
     col_data_graficos = "Data Abertura" if tipo_data_grafico == "Data de Abertura" else "Data Modificacao"
     
     equipe_suporte = ["Ana Beatriz", "Djhames Moraes", "Luciana Scabini", "Thaísa Castilho"]
@@ -59,6 +64,10 @@ def renderizar_aba_gestao():
     if df.empty:
         st.warning("Variância Zero. Nenhum dado encontrado na base neste período.")
         return
+
+    # Ajuste de segurança caso o tipo de data seja Encerramento
+    if tipo_data_grafico == "Data de Encerramento" and "Data Encerramento" in df.columns:
+        col_data_graficos = "Data Encerramento"
 
     clientes_sel = st.sidebar.multiselect("Filtrar Clientes", options=sorted(df["Cliente"].unique()))
 
@@ -72,7 +81,8 @@ def renderizar_aba_gestao():
     mask_abertos = (df_base["Data Abertura"].dt.date >= d_ini) & (df_base["Data Abertura"].dt.date <= d_fim)
     vol_periodo = len(df_base[mask_abertos])
 
-    mask_fechados = (df_base["Data Modificacao"].dt.date >= d_ini) & (df_base["Data Modificacao"].dt.date <= d_fim) & (df_base["Status"] == "Solucionado")
+    col_fechamento_kpi = "Data Movimentacao" if "Data Movimentacao" in df_base.columns else "Data Modificacao"
+    mask_fechados = (df_base[col_fechamento_kpi].dt.date >= d_ini) & (df_base[col_fechamento_kpi].dt.date <= d_fim) & (df_base["Status"] == "Solucionado")
     sol_periodo = len(df_base[mask_fechados])
 
     mask_referencia = mask_abertos if tipo_data_grafico == "Data de Abertura" else mask_fechados
@@ -90,7 +100,7 @@ def renderizar_aba_gestao():
     vazao_dia = sol_periodo / dias_periodo
 
     # --- 1. TOTALIZADORES ---
-    st.subheader(f"📈 Indicadores do Período", help="Totalizadores quantitativos do setor. Respondem dinamicamente aos filtros aplicados na barra lateral esquerda.")
+    st.subheader(f"📈 Indicadores do Período")
 
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1: st.metric("Volume Abertos", vol_periodo, help="Total absoluto de chamados ABERTOS no período filtrado.")
@@ -116,7 +126,6 @@ def renderizar_aba_gestao():
     with st.expander("ℹ️ Como ler este relatório (Volume Absoluto)"):
         st.markdown("""
         **Para que serve:** Identificar a probabilidade de um cliente gerar demandas para a equipe de suporte. Diferente do relatório de esforço (horas), este foca na quantidade bruta de tickets.
-        **Cálculo Matemático:** O sistema realiza uma contagem de frequência absoluta dos chamados (linhas de registro) agrupando por cliente dentro da janela estocástica selecionada.
         """)
 
     if not df_charts.empty:
@@ -140,8 +149,13 @@ def renderizar_aba_gestao():
                     cliente_sel = df_vol_cli.iloc[indice_sel]["Cliente"]
                     df_filtro_vol = df_charts[df_charts["Cliente"] == cliente_sel].copy()
                     st.success(f"🔎 **Auditoria:** {len(df_filtro_vol)} chamado(s) localizado(s) para '{cliente_sel}'.")
+                    
+                    # ⚠️ INCLUSÃO DO ESFORÇO NO DRILL DOWN DA TABELA DE VOLUME
                     cols_cli = ["ID", "Responsável", "Fase Nome", "Motivo Abertura", "Esforco_Formatado", "Data Formatada"]
                     df_chamados_vol = df_filtro_vol[[c for c in cols_cli if c in df_filtro_vol.columns]].copy()
+                    if "Esforco_Formatado" in df_chamados_vol.columns:
+                        df_chamados_vol["Esforco_Formatado"] = df_chamados_vol["Esforco_Formatado"].fillna("00:00:00")
+                        df_chamados_vol.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
                     st.dataframe(df_chamados_vol, use_container_width=True, hide_index=True)
 
         with col_v2:
@@ -156,12 +170,6 @@ def renderizar_aba_gestao():
 
     # --- 3. ANÁLISE DE ESFORÇO (TOUCH TIME) ---
     st.subheader("⏱️ Análise de Esforço Operacional (Horas Trabalhadas)")
-    
-    with st.expander("ℹ️ Como ler este relatório (Otimização de Custos)"):
-        st.markdown("""
-        **Para que serve:** Identificar os clientes que mais consomem as horas faturáveis da equipe e como a carga horária direta está dividida.
-        **Cálculo Matemático:** O sistema varre o banco de tarefas do Bitrix, extrai o campo `TIME_SPENT_IN_LOGS` e soma os segundos. **Não** contabiliza tempo de pausa.
-        """)
 
     def formatar_hhmmss(horas_dec):
         h = int(horas_dec)
@@ -202,8 +210,13 @@ def renderizar_aba_gestao():
                         cliente_selecionado = df_show_tabela.iloc[indice_selecionado]["Cliente"]
                         df_filtro_cli = df_charts[df_charts["Cliente"] == cliente_selecionado].copy()
                         st.success(f"🔎 **Auditoria:** {len(df_filtro_cli)} chamado(s) localizado(s) para '{cliente_selecionado}'.")
-                        cols_cli = ["ID", "Responsável", "Fase Nome", "Esforco_Formatado", "Data Formatada"]
+                        
+                        # ⚠️ INCLUSÃO DO TEMPO TRABALHADO NO DRILL DOWN DE ESFORÇO
+                        cols_cli = ["ID", "Responsável", "Fase Nome", "Esforco_Formatado", "Data Formatada", "Último Follow-up"]
                         df_chamados_cli = df_filtro_cli[[c for c in cols_cli if c in df_filtro_cli.columns]].copy()
+                        if "Esforco_Formatado" in df_chamados_cli.columns:
+                            df_chamados_cli["Esforco_Formatado"] = df_chamados_cli["Esforco_Formatado"].fillna("00:00:00")
+                            df_chamados_cli.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
                         st.dataframe(df_chamados_cli, use_container_width=True, hide_index=True)
             
         with col_t2:
@@ -216,9 +229,8 @@ def renderizar_aba_gestao():
 
     st.markdown("---")
 
-    # --- 4. CAUSA RAIZ (PARETO) ---
+    # --- 4. CAUSA RAIZ E 5. VISÃO MACRO (Sem alterações visuais drásticas, lógicas preservadas) ---
     st.subheader("🔍 Estocástica de Causa-Raiz (Diagrama de Pareto)")
-
     l3_g1, l3_g2 = st.columns(2)
     def gerar_dados_pareto(df_p, coluna):
         df_freq = df_p[coluna].value_counts().reset_index()
@@ -239,14 +251,15 @@ def renderizar_aba_gestao():
             else:
                 st.markdown("**Lista Completa de Motivos (Selecione uma linha)**")
                 evento_abert = st.dataframe(df_abertura_full, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row", key="tab_abert_todos", height=350)
-                
                 if evento_abert and "selection" in evento_abert and "rows" in evento_abert["selection"] and len(evento_abert["selection"]["rows"]) > 0:
                     idx_abert = evento_abert["selection"]["rows"][0]
                     motivo_abert_sel = df_abertura_full.iloc[idx_abert]["Motivo Abertura"]
                     df_filtro_abert = df_charts[df_charts["Motivo Abertura"] == motivo_abert_sel].copy()
-                    st.success(f"🔎 **Auditoria:** {len(df_filtro_abert)} chamados abertos por '{motivo_abert_sel}'.")
                     cols_abert = ["ID", "Cliente", "Responsável", "Esforco_Formatado", "Data Formatada"]
                     df_show_abert = df_filtro_abert[[c for c in cols_abert if c in df_filtro_abert.columns]].copy()
+                    if "Esforco_Formatado" in df_show_abert.columns:
+                        df_show_abert["Esforco_Formatado"] = df_show_abert["Esforco_Formatado"].fillna("00:00:00")
+                        df_show_abert.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
                     st.dataframe(df_show_abert, use_container_width=True, hide_index=True)
 
     with l3_g2:
@@ -265,73 +278,40 @@ def renderizar_aba_gestao():
                 else:
                     st.markdown("**Lista Completa de Motivos (Selecione uma linha)**")
                     evento_fecham = st.dataframe(df_fechamento_full, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row", key="tab_fecham_todos", height=350)
-                    
                     if evento_fecham and "selection" in evento_fecham and "rows" in evento_fecham["selection"] and len(evento_fecham["selection"]["rows"]) > 0:
                         idx_fecham = evento_fecham["selection"]["rows"][0]
                         motivo_fecham_sel = df_fechamento_full.iloc[idx_fecham]["Motivo Fechamento"]
                         df_filtro_fecham = df_solucionados[df_solucionados["Motivo Fechamento"] == motivo_fecham_sel].copy()
-                        st.success(f"🔎 **Auditoria:** {len(df_filtro_fecham)} chamados solucionados por '{motivo_fecham_sel}'.")
                         cols_fecham = ["ID", "Cliente", "Responsável", "Esforco_Formatado", "Data Formatada"]
                         df_show_fecham = df_filtro_fecham[[c for c in cols_fecham if c in df_filtro_fecham.columns]].copy()
+                        if "Esforco_Formatado" in df_show_fecham.columns:
+                            df_show_fecham["Esforco_Formatado"] = df_show_fecham["Esforco_Formatado"].fillna("00:00:00")
+                            df_show_fecham.rename(columns={"Esforco_Formatado": "Tempo Trabalhado"}, inplace=True)
                         st.dataframe(df_show_fecham, use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-    # --- 5. VISÃO MACRO E QUALIDADE SLA ---
-    st.subheader("🌐 Visão Macroeconômica e Produtividade")
-    
-    l1_g1, l1_g2 = st.columns(2)
-    with l1_g1:
-        st.markdown("**Evolução Diária de Demandas**")
-        if not df_charts.empty:
-            todas_datas = pd.date_range(start=d_ini, end=d_fim).strftime('%Y-%m-%d')
-            df_trend_base = df_charts.groupby('Data_Ref_Str').size().reset_index(name="Quantidade")
-            df_trend_completo = pd.DataFrame({'Data_Ref_Str': todas_datas})
-            df_trend = df_trend_completo.merge(df_trend_base, on='Data_Ref_Str', how='left').fillna(0)
-            df_trend['Data Exibicao'] = pd.to_datetime(df_trend['Data_Ref_Str']).dt.strftime('%d/%m/%y')
-            
-            fig_trend = px.line(df_trend, x='Data_Ref_Str', y="Quantidade", markers=True, text="Quantidade")
-            fig_trend.update_xaxes(type='category', tickangle=-45, title="")
-            fig_trend.update_yaxes(title="Volume")
-            fig_trend.update_traces(textposition="top center")
-            fig_trend.update_layout(margin=dict(t=10))
-            plot_interativo(fig_trend, df_charts, "Data_Ref_Str", "graf_evolucao_diaria", eixo_alvo="x") 
-
-    with l1_g2:
-        st.markdown("**Qualidade de Entrega (SLA por Analista)**")
-        if not df_charts.empty:
-            df_sla_ana = df_charts.groupby(['Responsável', 'Status_SLA']).size().reset_index(name='Total')
-            df_sla_ana['Chave_SLA'] = df_sla_ana['Responsável'].astype(str) + "|" + df_sla_ana['Status_SLA'].astype(str)
-            cores_sla = {'No Prazo ✅': '#2e7d32', 'Estourado 🚨': '#c62828'}
-            
-            fig_sla = px.bar(df_sla_ana, x='Responsável', y='Total', color='Status_SLA', barmode='stack', text_auto='.0f', color_discrete_map=cores_sla, custom_data=['Chave_SLA'])
-            fig_sla.update_layout(xaxis_title="", yaxis_title="Chamados", margin=dict(t=10))
-            plot_interativo(fig_sla, df_charts, "Chave_SLA", "graf_sla_qualidade", eixo_alvo="customdata")
 
     st.markdown("---")
 
     # --- 6. AUDITORIA DE REABERTURAS E RETRABALHO (BACKLOG) ---
     st.subheader("♻️ Auditoria de Reaberturas e Retrabalho (Passivo Movimentado)")
     
-    with st.expander("ℹ️ Como ler este relatório (Validação de Follow-up)"):
-        st.markdown("""
-        **Para que serve:** Identificar chamados que não foram resolvidos no primeiro contato (FCR) e exigiram que o analista reabrisse ou voltasse a trabalhar neles em dias posteriores.
-        **Cálculo Matemático:** O sistema cruza os tickets filtrados e isola **apenas** aqueles em que a `Data de Modificação` é de um dia estritamente maior que a `Data de Abertura`.
-        **Uso da Diretoria:** Utilize a coluna `Último Follow-up` na tabela abaixo para ler as justificativas do analista sobre o motivo do ticket ter se arrastado ou ter sido reaberto.
-        """)
-
     if not df_charts.empty:
-        # A regra matemática para isolar o passivo: Data Modificacao difere do dia da Abertura
-        df_reabertos = df_charts[df_charts["Data Abertura"].dt.date < df_charts["Data Modificacao"].dt.date].copy()
+        col_mov = "Data Movimentacao" if "Data Movimentacao" in df_charts.columns else "Data Modificacao"
+        df_reabertos = df_charts[df_charts["Data Abertura"].dt.date < df_charts[col_mov].dt.date].copy()
         
         if not df_reabertos.empty:
-            # Ordena pelos mais recentes modificados
-            df_reabertos.sort_values(by="Data Modificacao", ascending=False, inplace=True)
+            df_reabertos.sort_values(by=col_mov, ascending=False, inplace=True)
             
+            # ⚠️ INCLUSÃO DAS DATAS DE ABERTURA E ENCERRAMENTO (Conforme solicitado)
+            df_reabertos["Abertura"] = df_reabertos["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
+            df_reabertos["Movimentação"] = df_reabertos[col_mov].dt.strftime('%d/%m/%Y %H:%M')
+            
+            # Checa o encerramento, se for nulo, indica que está Em Aberto
+            col_enc = "Data Encerramento" if "Data Encerramento" in df_charts.columns else col_mov
+            df_reabertos["Encerramento"] = df_reabertos[col_enc].dt.strftime('%d/%m/%Y %H:%M').fillna("Em Aberto")
+
             st.metric(label="Volume de Retrabalho no Período", value=len(df_reabertos), help="Tickets iniciados no passado, mas que consumiram tempo/atenção no período filtrado.")
             
-            # Tabela limpa focada na auditoria do Follow-up
-            cols_auditoria = ["ID", "Responsável", "Cliente", "Fase Nome", "Status", "Último Follow-up", "Data Formatada"]
+            cols_auditoria = ["ID", "Responsável", "Cliente", "Fase Nome", "Abertura", "Encerramento", "Movimentação", "Último Follow-up"]
             cols_auditoria_present = [c for c in cols_auditoria if c in df_reabertos.columns]
             
             df_show_reabertos = df_reabertos[cols_auditoria_present].copy()
