@@ -79,46 +79,52 @@ else:
             df_pausa = df[df["Status"] == "Em Pausa"].copy()
             df_pendentes = pd.concat([df_abertos, df_pausa]).copy()
             
-            # Tenta usar a coluna de Encerramento real do Bitrix se existir, senão usa Modificação
+            # --- CORREÇÃO 1: REGRA DE SOLUCIONADOS (Focando na Data de Encerramento) ---
             col_fechamento = "Data Encerramento" if "Data Encerramento" in df.columns else "Data Modificacao"
-
-            # ⚠️ CORREÇÃO 1: Solucionados restritos ao dia de hoje (evita tickets velhos que só receberam comentário)
-            mask_solucionados_hoje = (df["Fase_Cod"] == "C8:WON") & (df[col_fechamento].dt.date == hoje)
+            
+            mask_solucionados_hoje = (df["Status"] == "Solucionado") & (df[col_fechamento].dt.date == hoje)
             df_solucionados_hoje = df[mask_solucionados_hoje].copy()
+            vol_solucionados_hoje = len(df_solucionados_hoje)
 
-            # ⚠️ CORREÇÃO 2: Reabertos (Tickets criados no passado, mas que sofreram movimentação hoje)
-            mask_reabertos = (df["Data Abertura"].dt.date < hoje) & (df["Data Modificacao"].dt.date == hoje)
+            # --- CORREÇÃO 2: REGRA DE REABERTOS (Retrabalho Multi-dias) ---
+            # 1. Chamados do passado que foram encerrados hoje (Backlog convertido hoje)
+            mask_reabertos_fechados = (df["Data Abertura"].dt.date < hoje) & mask_solucionados_hoje
+            
+            # 2. Chamados em aberto hoje, mas que vieram do passado e sofreram movimentação
+            # (Se o seu Bitrix tiver um campo "Reaberto", substitua esta máscara pela flag exata)
+            mask_reabertos_abertos = (df["Status"] != "Solucionado") & (df["Data Abertura"].dt.date < hoje) & (df["Data Modificacao"].dt.date == hoje) & (df[col_fechamento].notna())
+            
+            mask_reabertos = mask_reabertos_fechados | mask_reabertos_abertos
             df_reabertos_hoje = df[mask_reabertos].copy()
             vol_reabertos_hoje = len(df_reabertos_hoje)
 
-            # ⚠️ CORREÇÃO 3: Nova regra matemática de Eficiência (Penalizando o retrabalho)
+            # --- CORREÇÃO 3: REGRA DE EFICIÊNCIA ---
             vol_entradas_hoje = len(df[df['Data Abertura'].dt.date == hoje])
             total_demanda_hoje = vol_entradas_hoje + vol_reabertos_hoje
             
             if total_demanda_hoje > 0:
-                efi_diaria = (len(df_solucionados_hoje) / total_demanda_hoje) * 100
+                efi_diaria = (vol_solucionados_hoje / total_demanda_hoje) * 100
             else:
-                efi_diaria = 100.0 if len(df_solucionados_hoje) > 0 else 0.0
-                
-            t_efi_formatado = f"{efi_diaria:.1f}%"
+                efi_diaria = 100.0 if vol_solucionados_hoje > 0 else 0.0
 
+            # Renderização dos Botões Superiores
             c = st.columns(7)
             if c[0].button(f"📥 Entradas\n{vol_entradas_hoje}", key="k1", help="Tickets criados hoje."): st.session_state['filtro_atual'] = 'ENTRADAS'
             if c[1].button(f"📊 Pendentes\n{len(df_pendentes)}", key="k2", help="Total de chamados Ativos + Pausa."): st.session_state['filtro_atual'] = 'TOTAL_PENDENTE'
             if c[2].button(f"🔥 Fila Ativa\n{len(df_abertos)}", key="k3", help="Chamados aguardando ação da equipe."): st.session_state['filtro_atual'] = 'FILA_ATIVA'
             if c[3].button(f"🚨 SLA Crítico\n{len(df_abertos[df_abertos['Estourado']])}", key="k4", help="Chamados que ultrapassaram o tempo limite estipulado."): st.session_state['filtro_atual'] = 'SLA'
             if c[4].button(f"❄️ Em Pausa\n{len(df_pausa)}", key="k5", help="Aguardando retorno de terceiros."): st.session_state['filtro_atual'] = 'PAUSA'
-            if c[5].button(f"✅ Solucionados\n{len(df_solucionados_hoje)}", key="k6", help="Finalizados hoje."): st.session_state['filtro_atual'] = 'SOLUCIONADOS'
-            if c[6].button(f"♻️ Reabertos\n{vol_reabertos_hoje}", key="k7", help="Tickets antigos movimentados hoje."): st.session_state['filtro_atual'] = 'REABERTOS'
+            if c[5].button(f"✅ Solucionados\n{vol_solucionados_hoje}", key="k6", help="Finalizados hoje."): st.session_state['filtro_atual'] = 'SOLUCIONADOS'
+            if c[6].button(f"♻️ Reabertos\n{vol_reabertos_hoje}", key="k7", help="Tickets antigos movimentados/reabertos hoje."): st.session_state['filtro_atual'] = 'REABERTOS'
 
             k = st.columns(3)
-            with k[0]: styles.card_informativo("Eficiência Diária", t_efi_formatado, "Resoluções vs (Entradas + Reabertos)")
+            with k[0]: styles.card_informativo("Eficiência Diária", f"{efi_diaria:.1f}%", "Solucionados vs (Entradas + Reabertos)")
             with k[1]: styles.card_informativo("Retrabalho Diário (Passivo)", f"{vol_reabertos_hoje}", "Tickets antigos movimentados hoje")
             with k[2]: styles.card_informativo("Analistas Online", df_abertos['Responsável'].nunique(), "Com chamados ativos")
 
             f = st.session_state['filtro_atual']
             
-            # Definição das colunas dinâmicas para a tabela
+            # Matriz de Colunas Padrão
             cols_view = ["ID", "Fase Nome", "SLA Restante", "Cliente", "Título Completo", "Responsável", "Data Formatada", "Último Follow-up"]
             
             if f == 'TOTAL_PENDENTE': 
@@ -129,24 +135,33 @@ else:
                 df_view, tit = df[df["Data Abertura"].dt.date == hoje].copy(), "Entradas Criadas Hoje"
             elif f == 'SOLUCIONADOS': 
                 df_view, tit = df_solucionados_hoje.copy(), "Solucionados Hoje"
+                # Exibe a data de encerramento para validação
+                df_view["Encerramento"] = df_view[col_fechamento].dt.strftime('%d/%m %H:%M')
+                cols_view = ["ID", "Fase Nome", "Cliente", "Título Completo", "Responsável", "Encerramento", "Último Follow-up"]
             elif f == 'FILA_ATIVA': 
                 df_view, tit = df_abertos.copy(), "Fila Ativa de Trabalho"
             elif f == 'PAUSA': 
                 df_view, tit = df_pausa.copy(), "Chamados em Pausa"
             elif f == 'REABERTOS': 
                 df_view, tit = df_reabertos_hoje.copy(), "Auditoria: Chamados Reabertos/Movimentados Hoje"
-                # ⚠️ EXIBIÇÃO DE DATAS PARA AUDITORIA DE REABERTOS
-                cols_view = ["ID", "Fase Nome", "Cliente", "Título Completo", "Responsável", "Data Abertura_Str", "Data Modificacao_Str", "Último Follow-up"]
-                df_view["Data Abertura_Str"] = df_view["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
-                df_view["Data Modificacao_Str"] = df_view["Data Modificacao"].dt.strftime('%d/%m/%Y %H:%M')
+                # Exibe abertura e encerramento/modificação para localizar divergências
+                df_view["Abertura"] = df_view["Data Abertura"].dt.strftime('%d/%m %H:%M')
+                df_view["Movimentação"] = df_view["Data Modificacao"].dt.strftime('%d/%m %H:%M')
+                cols_view = ["ID", "Fase Nome", "Cliente", "Título Completo", "Responsável", "Abertura", "Movimentação", "Último Follow-up"]
             else: 
                 df_view, tit = df_pendentes.copy(), "Fila Geral"
 
             st.subheader(f"📋 {tit} ({len(df_view)})")
             
-            # Filtra apenas as colunas que realmente existem no DataFrame
+            # BLINDAGEM CONTRA O VALUE ERROR (Tela Vermelha do Styler)
             cols_present = [col for col in cols_view if col in df_view.columns]
-            st.dataframe(df_view[cols_present].style.apply(styles.style_rows, axis=1), width="stretch", hide_index=True, height=520)
+            
+            try:
+                # Tenta aplicar a pintura personalizada do styles.py
+                st.dataframe(df_view[cols_present].style.apply(styles.style_rows, axis=1), width="stretch", hide_index=True, height=520)
+            except ValueError:
+                # Se o styles.py quebrar por falta de colunas (SLA Restante, etc), renderiza a tabela crua sem quebrar o sistema
+                st.dataframe(df_view[cols_present], width="stretch", hide_index=True, height=520)
         
         time.sleep(60)
         st.rerun()
