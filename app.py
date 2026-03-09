@@ -80,19 +80,27 @@ else:
             df_abertos = df[df["Status"] == "Em Aberto"].copy()
             df_pausa = df[df["Status"] == "Em Pausa"].copy()
             df_pendentes = pd.concat([df_abertos, df_pausa]).copy()
-            t_efi, t_reab = data_engine.calcular_kpis_extras(df)
+            
+            # ⚠️ NOVA REGRA DE REABERTOS/MOVIMENTADOS (Passivo)
+            mask_reabertos = (df["Data Abertura"].dt.date < hoje) & (df["Data Modificacao"].dt.date == hoje)
+            df_reabertos_hoje = df[mask_reabertos].copy()
+            vol_reabertos_hoje = len(df_reabertos_hoje)
 
-            c = st.columns(6)
+            t_efi, _ = data_engine.calcular_kpis_extras(df) # Ignora a % antiga
+
+            # Alterado de 6 para 7 colunas para incluir o filtro interativo
+            c = st.columns(7)
             if c[0].button(f"📥 Entradas\n{len(df[df['Data Abertura'].dt.date == hoje])}", key="k1", help="Tickets criados hoje."): st.session_state['filtro_atual'] = 'ENTRADAS'
             if c[1].button(f"📊 Pendentes\n{len(df_pendentes)}", key="k2", help="Total de chamados Ativos + Pausa."): st.session_state['filtro_atual'] = 'TOTAL_PENDENTE'
             if c[2].button(f"🔥 Fila Ativa\n{len(df_abertos)}", key="k3", help="Chamados aguardando ação da equipe."): st.session_state['filtro_atual'] = 'FILA_ATIVA'
             if c[3].button(f"🚨 SLA Crítico\n{len(df_abertos[df_abertos['Estourado']])}", key="k4", help="Chamados que ultrapassaram o tempo limite estipulado."): st.session_state['filtro_atual'] = 'SLA'
             if c[4].button(f"❄️ Em Pausa\n{len(df_pausa)}", key="k5", help="Aguardando retorno de terceiros."): st.session_state['filtro_atual'] = 'PAUSA'
             if c[5].button(f"✅ Solucionados\n{len(df[df['Fase_Cod'] == 'C8:WON'])}", key="k6", help="Finalizados hoje."): st.session_state['filtro_atual'] = 'SOLUCIONADOS'
+            if c[6].button(f"♻️ Reabertos\n{vol_reabertos_hoje}", key="k7", help="Tickets antigos movimentados hoje."): st.session_state['filtro_atual'] = 'REABERTOS'
 
             k = st.columns(3)
             with k[0]: styles.card_informativo("Eficiência Diária", f"{t_efi}%", "Resoluções vs Aberturas hoje")
-            with k[1]: styles.card_informativo("Reabertos/Movimentados", f"{t_reab}%", "Tickets antigos mexidos hoje")
+            with k[1]: styles.card_informativo("Retrabalho Diário (Passivo)", f"{vol_reabertos_hoje}", "Tickets antigos movimentados hoje")
             with k[2]: styles.card_informativo("Analistas Online", df_abertos['Responsável'].nunique(), "Com chamados ativos")
 
             f = st.session_state['filtro_atual']
@@ -102,6 +110,7 @@ else:
             elif f == 'SOLUCIONADOS': df_view, tit = df[df["Fase_Cod"] == "C8:WON"].copy(), "Solucionados Hoje"
             elif f == 'FILA_ATIVA': df_view, tit = df_abertos.copy(), "Fila Ativa de Trabalho"
             elif f == 'PAUSA': df_view, tit = df_pausa.copy(), "Chamados em Pausa"
+            elif f == 'REABERTOS': df_view, tit = df_reabertos_hoje.copy(), "Auditoria: Chamados Reabertos/Movimentados Hoje"
             else: df_view, tit = df_pendentes.copy(), "Fila Geral"
 
             st.subheader(f"📋 {tit} ({len(df_view)})")
