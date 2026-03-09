@@ -130,7 +130,9 @@ def buscar_dados_historico(data_inicio, data_fim):
         df["Data Abertura"] = pd.to_datetime(df["Data Abertura"]).dt.tz_convert(None) - timedelta(hours=3)
         df["Data Modificacao"] = pd.to_datetime(df["Data Modificacao"]).dt.tz_convert(None) - timedelta(hours=3)
         df["Data Formatada"] = df["Data Abertura"].dt.strftime('%d/%m %H:%M')
-        
+        # ⚠️ ADICIONE ESTAS DUAS LINHAS NO data_engine_rel.py (Na área de conversão de datas)
+        df["Data Movimentacao"] = pd.to_datetime(df.get("Data Movimentacao"), errors='coerce', utc=True).dt.tz_convert(None) - timedelta(hours=3)
+        df["Data Encerramento"] = pd.to_datetime(df.get("Data Encerramento"), errors='coerce', utc=True).dt.tz_convert(None) - timedelta(hours=3)
         agora = datetime.now()
         df["Lead_Time_Bruto"] = df.apply(lambda row: (row["Data Modificacao"] if row["Fase_Cod"] == "C8:WON" else agora) - row["Data Abertura"], axis=1).dt.total_seconds() / 3600
         df["Horas Passadas"] = (agora - df["Data Abertura"]).dt.total_seconds() / 3600
