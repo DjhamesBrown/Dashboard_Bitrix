@@ -26,12 +26,11 @@ def realizar_login():
         if usr == cred["user"] and pwd == cred["pass"]:
             st.session_state.autenticado = True
             st.session_state.role = cred["role"]
-            return # Apenas retorna, o Streamlit recarrega automaticamente
+            return 
             
     st.error("Acesso Negado. Credenciais inválidas.")
 
 # --- 2. ISOLAMENTO ESTRUTURAL (IF/ELSE) ---
-# Se P(Autenticado) = 0, renderiza APENAS o login.
 if not st.session_state.autenticado:
     st.markdown("<br><br><br><h2 style='text-align: center;'>🔐 Autenticação Corporativa</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1.5, 1, 1.5])
@@ -41,7 +40,6 @@ if not st.session_state.autenticado:
             st.text_input("Senha", type="password", key="senha_input")
             st.button("Acessar Sistema", on_click=realizar_login, use_container_width=True)
 
-# Se P(Autenticado) = 1, renderiza APENAS o Dashboard.
 else:
     with st.sidebar:
         st.title("📟 Menu")
@@ -81,52 +79,74 @@ else:
             df_pausa = df[df["Status"] == "Em Pausa"].copy()
             df_pendentes = pd.concat([df_abertos, df_pausa]).copy()
             
-            # ⚠️ CORREÇÃO 1: SOLUCIONADOS HOJE
-            # O bug: antes pegava TODOS os solucionados da memória do Bitrix.
-            # A correção: agora exige estritamente que a Data de Modificação seja HOJE.
-            mask_solucionados_hoje = (df["Fase_Cod"] == "C8:WON") & (df["Data Modificacao"].dt.date == hoje)
+            # Tenta usar a coluna de Encerramento real do Bitrix se existir, senão usa Modificação
+            col_fechamento = "Data Encerramento" if "Data Encerramento" in df.columns else "Data Modificacao"
+
+            # ⚠️ CORREÇÃO 1: Solucionados restritos ao dia de hoje (evita tickets velhos que só receberam comentário)
+            mask_solucionados_hoje = (df["Fase_Cod"] == "C8:WON") & (df[col_fechamento].dt.date == hoje)
             df_solucionados_hoje = df[mask_solucionados_hoje].copy()
 
-            # ⚠️ CORREÇÃO 2: REABERTOS / RETRABALHO
-            # Puxa chamados antigos que receberam alteração (comentários, mudança de fase ou fechamento) HOJE
+            # ⚠️ CORREÇÃO 2: Reabertos (Tickets criados no passado, mas que sofreram movimentação hoje)
             mask_reabertos = (df["Data Abertura"].dt.date < hoje) & (df["Data Modificacao"].dt.date == hoje)
             df_reabertos_hoje = df[mask_reabertos].copy()
             vol_reabertos_hoje = len(df_reabertos_hoje)
 
-            t_efi, _ = data_engine.calcular_kpis_extras(df) 
+            # ⚠️ CORREÇÃO 3: Nova regra matemática de Eficiência (Penalizando o retrabalho)
+            vol_entradas_hoje = len(df[df['Data Abertura'].dt.date == hoje])
+            total_demanda_hoje = vol_entradas_hoje + vol_reabertos_hoje
+            
+            if total_demanda_hoje > 0:
+                efi_diaria = (len(df_solucionados_hoje) / total_demanda_hoje) * 100
+            else:
+                efi_diaria = 100.0 if len(df_solucionados_hoje) > 0 else 0.0
+                
+            t_efi_formatado = f"{efi_diaria:.1f}%"
 
             c = st.columns(7)
-            if c[0].button(f"📥 Entradas\n{len(df[df['Data Abertura'].dt.date == hoje])}", key="k1", help="Tickets criados hoje."): st.session_state['filtro_atual'] = 'ENTRADAS'
+            if c[0].button(f"📥 Entradas\n{vol_entradas_hoje}", key="k1", help="Tickets criados hoje."): st.session_state['filtro_atual'] = 'ENTRADAS'
             if c[1].button(f"📊 Pendentes\n{len(df_pendentes)}", key="k2", help="Total de chamados Ativos + Pausa."): st.session_state['filtro_atual'] = 'TOTAL_PENDENTE'
             if c[2].button(f"🔥 Fila Ativa\n{len(df_abertos)}", key="k3", help="Chamados aguardando ação da equipe."): st.session_state['filtro_atual'] = 'FILA_ATIVA'
             if c[3].button(f"🚨 SLA Crítico\n{len(df_abertos[df_abertos['Estourado']])}", key="k4", help="Chamados que ultrapassaram o tempo limite estipulado."): st.session_state['filtro_atual'] = 'SLA'
             if c[4].button(f"❄️ Em Pausa\n{len(df_pausa)}", key="k5", help="Aguardando retorno de terceiros."): st.session_state['filtro_atual'] = 'PAUSA'
-            
-            # Aplicando o Dataframe com o filtro de data correto no botão
             if c[5].button(f"✅ Solucionados\n{len(df_solucionados_hoje)}", key="k6", help="Finalizados hoje."): st.session_state['filtro_atual'] = 'SOLUCIONADOS'
-            
             if c[6].button(f"♻️ Reabertos\n{vol_reabertos_hoje}", key="k7", help="Tickets antigos movimentados hoje."): st.session_state['filtro_atual'] = 'REABERTOS'
 
             k = st.columns(3)
-            with k[0]: styles.card_informativo("Eficiência Diária", f"{t_efi}%", "Resoluções vs Aberturas hoje")
+            with k[0]: styles.card_informativo("Eficiência Diária", t_efi_formatado, "Resoluções vs (Entradas + Reabertos)")
             with k[1]: styles.card_informativo("Retrabalho Diário (Passivo)", f"{vol_reabertos_hoje}", "Tickets antigos movimentados hoje")
             with k[2]: styles.card_informativo("Analistas Online", df_abertos['Responsável'].nunique(), "Com chamados ativos")
 
             f = st.session_state['filtro_atual']
-            if f == 'TOTAL_PENDENTE': df_view, tit = df_pendentes.sort_values(by="ID", key=lambda x: pd.to_numeric(x)).copy(), "Total Pendente"
-            elif f == 'SLA': df_view, tit = df_abertos[df_abertos["Estourado"]].copy(), "SLA Vencido"
-            elif f == 'ENTRADAS': df_view, tit = df[df["Data Abertura"].dt.date == hoje].copy(), "Entradas Criadas Hoje"
             
-            # Aplicando a variável com o filtro de data correto na renderização da tabela
-            elif f == 'SOLUCIONADOS': df_view, tit = df_solucionados_hoje.copy(), "Solucionados Hoje"
+            # Definição das colunas dinâmicas para a tabela
+            cols_view = ["ID", "Fase Nome", "SLA Restante", "Cliente", "Título Completo", "Responsável", "Data Formatada", "Último Follow-up"]
             
-            elif f == 'FILA_ATIVA': df_view, tit = df_abertos.copy(), "Fila Ativa de Trabalho"
-            elif f == 'PAUSA': df_view, tit = df_pausa.copy(), "Chamados em Pausa"
-            elif f == 'REABERTOS': df_view, tit = df_reabertos_hoje.copy(), "Auditoria: Chamados Reabertos/Movimentados Hoje"
-            else: df_view, tit = df_pendentes.copy(), "Fila Geral"
+            if f == 'TOTAL_PENDENTE': 
+                df_view, tit = df_pendentes.sort_values(by="ID", key=lambda x: pd.to_numeric(x)).copy(), "Total Pendente"
+            elif f == 'SLA': 
+                df_view, tit = df_abertos[df_abertos["Estourado"]].copy(), "SLA Vencido"
+            elif f == 'ENTRADAS': 
+                df_view, tit = df[df["Data Abertura"].dt.date == hoje].copy(), "Entradas Criadas Hoje"
+            elif f == 'SOLUCIONADOS': 
+                df_view, tit = df_solucionados_hoje.copy(), "Solucionados Hoje"
+            elif f == 'FILA_ATIVA': 
+                df_view, tit = df_abertos.copy(), "Fila Ativa de Trabalho"
+            elif f == 'PAUSA': 
+                df_view, tit = df_pausa.copy(), "Chamados em Pausa"
+            elif f == 'REABERTOS': 
+                df_view, tit = df_reabertos_hoje.copy(), "Auditoria: Chamados Reabertos/Movimentados Hoje"
+                # ⚠️ EXIBIÇÃO DE DATAS PARA AUDITORIA DE REABERTOS
+                cols_view = ["ID", "Fase Nome", "Cliente", "Título Completo", "Responsável", "Data Abertura_Str", "Data Modificacao_Str", "Último Follow-up"]
+                df_view["Data Abertura_Str"] = df_view["Data Abertura"].dt.strftime('%d/%m/%Y %H:%M')
+                df_view["Data Modificacao_Str"] = df_view["Data Modificacao"].dt.strftime('%d/%m/%Y %H:%M')
+            else: 
+                df_view, tit = df_pendentes.copy(), "Fila Geral"
 
             st.subheader(f"📋 {tit} ({len(df_view)})")
-            st.dataframe(df_view[["ID", "Fase Nome", "SLA Restante", "Cliente", "Título Completo", "Responsável", "Data Formatada", "Último Follow-up"]].style.apply(styles.style_rows, axis=1), width="stretch", hide_index=True, height=520)
+            
+            # Filtra apenas as colunas que realmente existem no DataFrame
+            cols_present = [col for col in cols_view if col in df_view.columns]
+            st.dataframe(df_view[cols_present].style.apply(styles.style_rows, axis=1), width="stretch", hide_index=True, height=520)
         
         time.sleep(60)
         st.rerun()
