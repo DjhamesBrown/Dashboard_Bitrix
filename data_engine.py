@@ -32,6 +32,7 @@ def buscar_dados():
         lista_criados = response_criados.json().get("result", [])
 
         # 3. BUSCA SOLUCIONADOS/MODIFICADOS HOJE
+        # Usamos DATE_MODIFY aqui pois um chamado reaberto e fechado hoje terá a data de modificação = hoje
         response_hoje = requests.post(
             f"{config.WEBHOOK_URL}/crm.deal.list", 
             json={
@@ -54,9 +55,16 @@ def buscar_dados():
         # --- PROCESSAMENTO ---
         df["Fase Nome"] = df["Fase_Cod"].map(config.NOMES_FASES).fillna(df["Fase_Cod"])
         
-        # Datas
-        df["Data Abertura"] = pd.to_datetime(df["Data Abertura"]).dt.tz_convert(None) - timedelta(hours=3)
-        df["Data Modificacao"] = pd.to_datetime(df["Data Modificacao"]).dt.tz_convert(None) - timedelta(hours=3)
+        # ⚠️ TRATAMENTO DAS DATAS (Incluindo a nova Data de Encerramento)
+        # O parâmetro utc=True impede quebras no código caso a data venha vazia
+        df["Data Abertura"] = pd.to_datetime(df["Data Abertura"], errors='coerce', utc=True).dt.tz_convert(None) - timedelta(hours=3)
+        df["Data Modificacao"] = pd.to_datetime(df["Data Modificacao"], errors='coerce', utc=True).dt.tz_convert(None) - timedelta(hours=3)
+        
+        if "Data Encerramento" in df.columns:
+            df["Data Encerramento"] = pd.to_datetime(df["Data Encerramento"], errors='coerce', utc=True).dt.tz_convert(None) - timedelta(hours=3)
+        else:
+            df["Data Encerramento"] = pd.NaT
+
         df["Data Formatada"] = df["Data Abertura"].dt.strftime('%d/%m %H:%M')
         
         # Cálculos de Tempo
@@ -101,31 +109,7 @@ def buscar_dados():
         print(f"Erro API: {e}")
         return pd.DataFrame()
 
+# A função calcular_kpis_extras foi mantida, mas não está mais sendo usada no app.py,
+# pois nós migramos esse cálculo com as regras exatas de reabertos direto para o app.py na etapa anterior.
 def calcular_kpis_extras(df):
-    """Calcula as porcentagens solicitadas"""
-    if df.empty: return 0, 0
-    
-    hoje = datetime.now().date()
-    
-    # 1. Eficiência (% Concluído vs Aberto no dia)
-    criados_hoje = len(df[df["Data Abertura"].dt.date == hoje])
-    solucionados_hoje = len(df[(df["Fase_Cod"] == "C8:WON") & (df["Data Modificacao"].dt.date == hoje)])
-    
-    taxa_eficiencia = 0
-    if criados_hoje > 0:
-        taxa_eficiencia = int((solucionados_hoje / criados_hoje) * 100)
-    
-    # 2. Reabertos/Movimentados (% de chamados antigos mexidos hoje)
-    # Lógica: Status Aberto HOJE, mas criado ANTES de hoje e modificado HOJE.
-    abertos_ativos = df[(df["Status"] == "Em Aberto")]
-    reabertos = len(abertos_ativos[
-        (abertos_ativos["Data Abertura"].dt.date < hoje) & 
-        (abertos_ativos["Data Modificacao"].dt.date == hoje)
-    ])
-    
-    total_ativos = len(abertos_ativos)
-    taxa_reabertura = 0
-    if total_ativos > 0:
-        taxa_reabertura = int((reabertos / total_ativos) * 100)
-        
-    return taxa_eficiencia, taxa_reabertura
+    pass
