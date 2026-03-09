@@ -81,21 +81,30 @@ else:
             df_pausa = df[df["Status"] == "Em Pausa"].copy()
             df_pendentes = pd.concat([df_abertos, df_pausa]).copy()
             
-            # ⚠️ NOVA REGRA DE REABERTOS/MOVIMENTADOS (Passivo)
+            # ⚠️ CORREÇÃO 1: SOLUCIONADOS HOJE
+            # O bug: antes pegava TODOS os solucionados da memória do Bitrix.
+            # A correção: agora exige estritamente que a Data de Modificação seja HOJE.
+            mask_solucionados_hoje = (df["Fase_Cod"] == "C8:WON") & (df["Data Modificacao"].dt.date == hoje)
+            df_solucionados_hoje = df[mask_solucionados_hoje].copy()
+
+            # ⚠️ CORREÇÃO 2: REABERTOS / RETRABALHO
+            # Puxa chamados antigos que receberam alteração (comentários, mudança de fase ou fechamento) HOJE
             mask_reabertos = (df["Data Abertura"].dt.date < hoje) & (df["Data Modificacao"].dt.date == hoje)
             df_reabertos_hoje = df[mask_reabertos].copy()
             vol_reabertos_hoje = len(df_reabertos_hoje)
 
-            t_efi, _ = data_engine.calcular_kpis_extras(df) # Ignora a % antiga
+            t_efi, _ = data_engine.calcular_kpis_extras(df) 
 
-            # Alterado de 6 para 7 colunas para incluir o filtro interativo
             c = st.columns(7)
             if c[0].button(f"📥 Entradas\n{len(df[df['Data Abertura'].dt.date == hoje])}", key="k1", help="Tickets criados hoje."): st.session_state['filtro_atual'] = 'ENTRADAS'
             if c[1].button(f"📊 Pendentes\n{len(df_pendentes)}", key="k2", help="Total de chamados Ativos + Pausa."): st.session_state['filtro_atual'] = 'TOTAL_PENDENTE'
             if c[2].button(f"🔥 Fila Ativa\n{len(df_abertos)}", key="k3", help="Chamados aguardando ação da equipe."): st.session_state['filtro_atual'] = 'FILA_ATIVA'
             if c[3].button(f"🚨 SLA Crítico\n{len(df_abertos[df_abertos['Estourado']])}", key="k4", help="Chamados que ultrapassaram o tempo limite estipulado."): st.session_state['filtro_atual'] = 'SLA'
             if c[4].button(f"❄️ Em Pausa\n{len(df_pausa)}", key="k5", help="Aguardando retorno de terceiros."): st.session_state['filtro_atual'] = 'PAUSA'
-            if c[5].button(f"✅ Solucionados\n{len(df[df['Fase_Cod'] == 'C8:WON'])}", key="k6", help="Finalizados hoje."): st.session_state['filtro_atual'] = 'SOLUCIONADOS'
+            
+            # Aplicando o Dataframe com o filtro de data correto no botão
+            if c[5].button(f"✅ Solucionados\n{len(df_solucionados_hoje)}", key="k6", help="Finalizados hoje."): st.session_state['filtro_atual'] = 'SOLUCIONADOS'
+            
             if c[6].button(f"♻️ Reabertos\n{vol_reabertos_hoje}", key="k7", help="Tickets antigos movimentados hoje."): st.session_state['filtro_atual'] = 'REABERTOS'
 
             k = st.columns(3)
@@ -107,7 +116,10 @@ else:
             if f == 'TOTAL_PENDENTE': df_view, tit = df_pendentes.sort_values(by="ID", key=lambda x: pd.to_numeric(x)).copy(), "Total Pendente"
             elif f == 'SLA': df_view, tit = df_abertos[df_abertos["Estourado"]].copy(), "SLA Vencido"
             elif f == 'ENTRADAS': df_view, tit = df[df["Data Abertura"].dt.date == hoje].copy(), "Entradas Criadas Hoje"
-            elif f == 'SOLUCIONADOS': df_view, tit = df[df["Fase_Cod"] == "C8:WON"].copy(), "Solucionados Hoje"
+            
+            # Aplicando a variável com o filtro de data correto na renderização da tabela
+            elif f == 'SOLUCIONADOS': df_view, tit = df_solucionados_hoje.copy(), "Solucionados Hoje"
+            
             elif f == 'FILA_ATIVA': df_view, tit = df_abertos.copy(), "Fila Ativa de Trabalho"
             elif f == 'PAUSA': df_view, tit = df_pausa.copy(), "Chamados em Pausa"
             elif f == 'REABERTOS': df_view, tit = df_reabertos_hoje.copy(), "Auditoria: Chamados Reabertos/Movimentados Hoje"
@@ -116,7 +128,6 @@ else:
             st.subheader(f"📋 {tit} ({len(df_view)})")
             st.dataframe(df_view[["ID", "Fase Nome", "SLA Restante", "Cliente", "Título Completo", "Responsável", "Data Formatada", "Último Follow-up"]].style.apply(styles.style_rows, axis=1), width="stretch", hide_index=True, height=520)
         
-        # O timer de refresh agora está protegido dentro do escopo Operacional
         time.sleep(60)
         st.rerun()
 
