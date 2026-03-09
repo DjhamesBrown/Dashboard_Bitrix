@@ -68,7 +68,7 @@ else:
             df_pendentes = pd.concat([df_abertos, df_pausa]).copy()
             
             # --- 1. LÓGICA DE SOLUCIONADOS (Fim dos fantasmas) ---
-            mask_solucionados_hoje = (df["Status"] == "Solucionado") & (df["Data Encerramento"].dt.date == hoje)
+            mask_solucionados_hoje = (df["Status"] == "Solucionado") & (df["Data Movimentacao"].dt.date == hoje)
             df_solucionados_hoje = df[mask_solucionados_hoje].copy()
             vol_solucionados_hoje = len(df_solucionados_hoje)
 
@@ -132,3 +132,4 @@ else:
 
     elif aba == "📊 Gestão": 
         relatorios.renderizar_aba_gestao()
+
