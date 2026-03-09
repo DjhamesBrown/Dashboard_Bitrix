@@ -45,7 +45,7 @@ CAMPOS_BITRIX = {
     "STAGE_ID": "Fase_Cod", 
     "DATE_CREATE": "Data Abertura",
     "DATE_MODIFY": "Data Modificacao", 
-    "CLOSEDATE": "Data Encerramento",
+    "UF_CRM_1616007015366": "Data Encerramento", # ⚠️ CORREÇÃO: Forçando o campo real de Conclusão!
     "UF_CRM_1616006980001": "Último Follow-up",
     "UF_CRM_1685489465": "Motivo Abertura",
     "UF_CRM_1636030396": "Motivo Fechamento"
