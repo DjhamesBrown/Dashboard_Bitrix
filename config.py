@@ -16,7 +16,8 @@ EQUIPE = {
     "249": "Luciana Scabini",
     "1729": "Thaísa Castilho", 
     "1219": "Ana Beatriz", 
-    "1": "Admin"
+    "1": "Admin",
+    "20": "Saulo Bevilacqua"
 }
 
 # 3. MAPEAMENTO DE FASES E STATUS
@@ -48,5 +49,6 @@ CAMPOS_BITRIX = {
     "UF_CRM_1685489465": "Motivo Abertura",
     "UF_CRM_1636030396": "Motivo Fechamento"
 }
+
 
 
